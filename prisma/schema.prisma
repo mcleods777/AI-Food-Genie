@@ -1,0 +1,110 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Pantry/inventory items detected from photos or manually added
+model PantryItem {
+  id            String    @id @default(uuid())
+  name          String
+  category      String    @default("Other") // Produce, Dairy, Meat, Grain, Spice, Canned, Frozen, Beverage, Snack, Other
+  quantity      Float     @default(1)
+  unit          String    @default("item") // item, lb, oz, gal, ct, bag, box, can, bottle
+  location      String    @default("Pantry") // Pantry, Refrigerator, Freezer, Cabinet
+  expirationDate DateTime?
+  purchaseDate  DateTime?
+  imageUrl      String?
+  notes         String?
+  needsRestock  Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  recipeIngredients RecipeIngredient[]
+  shoppingListItems ShoppingListItem[]
+}
+
+// Recipes - either manually added or extracted from URLs
+model Recipe {
+  id           String   @id @default(uuid())
+  title        String
+  description  String?
+  sourceUrl    String?
+  servings     Int      @default(4)
+  prepTime     Int?     // minutes
+  cookTime     Int?     // minutes
+  instructions String?  // stored as JSON array of steps
+  imageUrl     String?
+  tags         String?  // comma-separated tags
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  ingredients RecipeIngredient[]
+  mealPlans   MealPlanEntry[]
+}
+
+// Ingredients needed for a recipe
+model RecipeIngredient {
+  id           String  @id @default(uuid())
+  recipeId     String
+  pantryItemId String?
+  name         String
+  quantity     Float   @default(1)
+  unit         String  @default("item")
+  optional     Boolean @default(false)
+
+  recipe     Recipe      @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  pantryItem PantryItem? @relation(fields: [pantryItemId], references: [id], onDelete: SetNull)
+}
+
+// Weekly meal plan
+model MealPlanEntry {
+  id        String   @id @default(uuid())
+  date      DateTime
+  mealType  String   // Breakfast, Lunch, Dinner, Snack
+  recipeId  String?
+  customMeal String? // for meals not tied to a recipe
+  servings  Int      @default(2)
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  recipe Recipe? @relation(fields: [recipeId], references: [id], onDelete: SetNull)
+}
+
+// Household configuration for meal planning
+model HouseholdConfig {
+  id        String  @id @default(uuid())
+  name      String  @default("Default")
+  scenario  String  // "solo", "with_kids", "with_partner", "with_partner_and_kids", "special_occasion"
+  headcount Int     @default(1)
+  notes     String?
+  isDefault Boolean @default(false)
+}
+
+// Shopping list
+model ShoppingListItem {
+  id           String  @id @default(uuid())
+  name         String
+  quantity     Float   @default(1)
+  unit         String  @default("item")
+  category     String  @default("Other")
+  checked      Boolean @default(false)
+  pantryItemId String?
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  pantryItem PantryItem? @relation(fields: [pantryItemId], references: [id], onDelete: SetNull)
+}
+
+// Audit log for inventory checks
+model AuditLog {
+  id        String   @id @default(uuid())
+  type      String   // "full_audit", "expiration_check", "restock_check"
+  summary   String?
+  details   String?  // JSON with audit findings
+  createdAt DateTime @default(now())
+}
