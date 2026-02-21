@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { analyzeImageForItems } from "@/lib/ai";
 import { calculateExpirationDate } from "@/lib/expiration";
+import { lookupBarcode } from "@/lib/barcode";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
@@ -40,22 +41,24 @@ export async function POST(request: NextRequest) {
 
     const createdItems = await Promise.all(
       analyzedItems.map((item) => {
-        // Grocery purchases are sealed by default (just bought)
         const opened = item.opened ?? false;
-        // Default storage location for new groceries: refrigerate perishables, pantry for shelf-stable
         const location = ["Dairy", "Meat", "Produce"].includes(item.category)
           ? "Refrigerator"
           : item.category === "Frozen"
             ? "Freezer"
             : "Pantry";
 
-        const { date: expDate, reason } = calculateExpirationDate(
-          now,
-          item.name,
-          location,
-          item.category,
-          opened
-        );
+        let expDate: Date;
+        let reason: string;
+
+        if (item.expirationDateFromLabel && item.confidence >= 0.7) {
+          expDate = new Date(item.expirationDateFromLabel);
+          reason = `Read from label (confidence: ${(item.confidence * 100).toFixed(0)}%)`;
+        } else {
+          const estimated = calculateExpirationDate(now, item.name, location, item.category, opened);
+          expDate = estimated.date;
+          reason = estimated.reason;
+        }
 
         return prisma.pantryItem.create({
           data: {
@@ -74,21 +77,60 @@ export async function POST(request: NextRequest) {
       })
     );
 
-    return NextResponse.json({
-      message: `Cataloged ${createdItems.length} grocery items with smart expiration estimates`,
-      items: createdItems,
-      imageUrl,
+    const labelDates = analyzedItems.filter((i) => i.expirationDateFromLabel).length;
+    let message = `Cataloged ${createdItems.length} grocery items with smart expiration estimates`;
+    if (labelDates > 0) message += ` (${labelDates} dates read from labels)`;
+
+    return NextResponse.json({ message, items: createdItems, imageUrl });
+  }
+
+  // JSON body: manual entry or barcode
+  const body = await request.json();
+
+  // Barcode lookup
+  if (body.barcode) {
+    const product = await lookupBarcode(body.barcode);
+    if (!product) {
+      return NextResponse.json(
+        { error: "Product not found. Try adding it manually." },
+        { status: 404 }
+      );
+    }
+
+    const now = new Date();
+    const location = ["Dairy", "Meat", "Produce"].includes(product.category)
+      ? "Refrigerator"
+      : product.category === "Frozen"
+        ? "Freezer"
+        : "Pantry";
+
+    const estimated = calculateExpirationDate(now, product.name, location, product.category, false);
+
+    const item = await prisma.pantryItem.create({
+      data: {
+        name: product.brand ? `${product.brand} ${product.name}` : product.name,
+        category: product.category,
+        quantity: body.quantity || 1,
+        unit: body.unit || "item",
+        location,
+        opened: false,
+        purchaseDate: now,
+        expirationDate: estimated.date,
+        expiryEstimateReason: estimated.reason,
+        imageUrl: product.imageUrl,
+        notes: product.ingredients ? `Ingredients: ${product.ingredients.slice(0, 200)}` : null,
+      },
     });
+
+    return NextResponse.json(item, { status: 201 });
   }
 
   // Manual grocery item entry
-  const body = await request.json();
   const itemName = body.name;
   const itemCategory = body.category || "Other";
   const itemLocation = body.location || "Pantry";
   const now = new Date();
 
-  // Auto-estimate expiration if not provided
   let expirationDate = body.expirationDate ? new Date(body.expirationDate) : null;
   let expiryEstimateReason: string | null = null;
 

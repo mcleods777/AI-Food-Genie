@@ -1,9 +1,13 @@
 import { prisma } from "@/lib/db";
+import { getProviderStatus, getProviderForTask } from "@/lib/providers";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
 export default async function Dashboard() {
+  const providers = getProviderStatus();
+  const scanProvider = getProviderForTask("scan");
+  const ocrProvider = getProviderForTask("ocr");
   const [pantryCount, expiringCount, recipeCount, shoppingCount, upcomingMeals] =
     await Promise.all([
       prisma.pantryItem.count(),
@@ -138,6 +142,44 @@ export default async function Dashboard() {
             </ul>
           )}
         </div>
+      </div>
+
+      {/* AI Provider Status */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <h2 className="text-lg font-semibold mb-3">AI Provider Status</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+          <div className={`rounded-lg p-3 ${providers.gemini ? "bg-green-50 border border-green-200" : "bg-gray-50 border border-gray-200"}`}>
+            <div className="flex items-center gap-2 mb-1">
+              <div className={`w-2 h-2 rounded-full ${providers.gemini ? "bg-green-500" : "bg-gray-300"}`} />
+              <span className="text-sm font-medium">Gemini Flash</span>
+            </div>
+            <p className="text-xs text-gray-500">Primary scanner &middot; $0.0003/scan</p>
+          </div>
+          <div className={`rounded-lg p-3 ${providers.claude ? "bg-green-50 border border-green-200" : "bg-gray-50 border border-gray-200"}`}>
+            <div className="flex items-center gap-2 mb-1">
+              <div className={`w-2 h-2 rounded-full ${providers.claude ? "bg-green-500" : "bg-gray-300"}`} />
+              <span className="text-sm font-medium">Claude</span>
+            </div>
+            <p className="text-xs text-gray-500">Date OCR &middot; 0.09% hallucination</p>
+          </div>
+          <div className={`rounded-lg p-3 ${providers.openai ? "bg-green-50 border border-green-200" : "bg-gray-50 border border-gray-200"}`}>
+            <div className="flex items-center gap-2 mb-1">
+              <div className={`w-2 h-2 rounded-full ${providers.openai ? "bg-green-500" : "bg-gray-300"}`} />
+              <span className="text-sm font-medium">GPT-4o</span>
+            </div>
+            <p className="text-xs text-gray-500">Fallback &middot; fine-tuning option</p>
+          </div>
+        </div>
+        <div className="text-xs text-gray-400 space-y-1">
+          <p>Scanning: <span className="font-medium text-gray-600">{scanProvider.available ? `${scanProvider.provider === "gemini" ? "Gemini Flash" : scanProvider.provider === "claude" ? "Claude" : "GPT-4o"}` : "Mock data (no provider configured)"}</span></p>
+          <p>Date OCR: <span className="font-medium text-gray-600">{ocrProvider.available ? `${ocrProvider.provider === "claude" ? "Claude" : ocrProvider.provider === "gemini" ? "Gemini Flash" : "GPT-4o"}` : "Not available"}</span></p>
+          <p>Barcode: <span className="font-medium text-gray-600">Open Food Facts (always available)</span></p>
+        </div>
+        {!providers.gemini && !providers.claude && !providers.openai && (
+          <p className="text-xs text-amber-600 mt-3 bg-amber-50 px-3 py-2 rounded-lg">
+            No AI providers configured. Add API keys to .env for live scanning. The app works with mock data for development.
+          </p>
+        )}
       </div>
     </div>
   );

@@ -1,18 +1,19 @@
-// AI utility functions for food analysis and recipe extraction
-// These functions integrate with OpenAI's API for image analysis and web scraping
+// Multi-provider AI layer for food analysis
+// Routes tasks to the best model: Gemini (scanning), Claude (OCR), GPT-4o (fallback)
 
 import { estimateExpiration } from "./expiration";
+import { getProviderConfig, getProviderForTask, type ScanProvider } from "./providers";
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-
-interface AnalyzedItem {
+export interface AnalyzedItem {
   name: string;
   category: string;
   quantity: number;
   unit: string;
+  opened: boolean;
+  confidence: number; // 0.0-1.0
   estimatedExpiration?: string;
   expiryEstimateReason?: string;
-  opened?: boolean;
+  expirationDateFromLabel?: string | null; // OCR-read date if visible
 }
 
 interface ExtractedRecipe {
@@ -26,66 +27,291 @@ interface ExtractedRecipe {
   tags: string[];
 }
 
-export async function analyzeImageForItems(
-  base64Image: string,
-  location: string
-): Promise<AnalyzedItem[]> {
-  if (!OPENAI_API_KEY || OPENAI_API_KEY === "your-openai-api-key-here") {
-    // Return mock data when no API key is configured
-    return getMockAnalysisResults(location);
+// ─── Describe-then-extract system prompt (proven to reduce errors) ─────────
+
+const SCAN_SYSTEM_PROMPT = `You are a food inventory scanner. Analyze the image and identify all food items.
+
+RULES:
+- Extract EXACT text from labels. Never invent text.
+- Set fields to null when information isn't visible. Never guess dates.
+- Parse dates to ISO 8601 (YYYY-MM-DD). Look for: "Best By", "Use By", "Sell By", "BB", "EXP", "Best Before".
+- For multi-item scenes, list ALL items left-to-right, top-to-bottom.
+- Include confidence (0.0-1.0) for every item based on how clearly visible it is.
+- Look for opened containers, torn packaging, partially used items.`;
+
+function buildScanPrompt(location: string): string {
+  return `STEP 1: Describe every food item you can see in this image of a ${location}. Note the item name, its packaging state (opened/sealed), and any visible text on labels (especially dates).
+
+STEP 2: From your description, extract a JSON array where each item has:
+- name: string (the item name)
+- category: one of "Produce", "Dairy", "Meat", "Grain", "Spice", "Canned", "Frozen", "Beverage", "Snack", "Condiment", "Other"
+- quantity: number (estimated count or amount)
+- unit: one of "item", "lb", "oz", "gal", "ct", "bag", "box", "can", "bottle"
+- opened: boolean (true if the container appears opened/unsealed/partially used)
+- confidence: number 0.0-1.0 (how clearly you can identify this item)
+- expirationDateFromLabel: string|null (ISO 8601 date if you can read an expiration/best-by date on the label, null otherwise. ONLY include dates you can actually read - never guess.)
+
+Do NOT estimate expiration dates. The system calculates those from item type, storage (${location}), and opened status.
+
+Respond with the JSON array ONLY after your description. Format: [{"name":...}, ...]`;
+}
+
+// ─── Provider-specific API calls ───────────────────────────────────────────
+
+async function callGemini(
+  apiKey: string,
+  model: string,
+  systemPrompt: string,
+  userPrompt: string,
+  base64Image?: string,
+  mimeType: string = "image/jpeg"
+): Promise<string> {
+  const parts: Array<Record<string, unknown>> = [];
+
+  if (base64Image) {
+    parts.push({
+      inline_data: {
+        mime_type: mimeType,
+        data: base64Image,
+      },
+    });
+  }
+
+  parts.push({ text: userPrompt });
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ parts }],
+        generationConfig: {
+          response_mime_type: "application/json",
+          temperature: 0.1,
+          maxOutputTokens: 4000,
+        },
+      }),
+    }
+  );
+
+  const data = await response.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
+}
+
+async function callClaude(
+  apiKey: string,
+  model: string,
+  systemPrompt: string,
+  userPrompt: string,
+  base64Image?: string,
+  mimeType: string = "image/jpeg"
+): Promise<string> {
+  const content: Array<Record<string, unknown>> = [];
+
+  if (base64Image) {
+    content.push({
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: mimeType,
+        data: base64Image,
+      },
+    });
+  }
+
+  content.push({ type: "text", text: userPrompt });
+
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 4000,
+      system: systemPrompt,
+      messages: [{ role: "user", content }],
+    }),
+  });
+
+  const data = await response.json();
+  const text = data.content?.[0]?.text || "[]";
+  return text;
+}
+
+async function callOpenAI(
+  apiKey: string,
+  model: string,
+  systemPrompt: string,
+  userPrompt: string,
+  base64Image?: string,
+  mimeType: string = "image/jpeg"
+): Promise<string> {
+  const content: Array<Record<string, unknown>> = [];
+
+  content.push({ type: "text", text: userPrompt });
+
+  if (base64Image) {
+    content.push({
+      type: "image_url",
+      image_url: { url: `data:${mimeType};base64,${base64Image}` },
+    });
   }
 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "gpt-4o",
+      model,
       messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: `Analyze this image of a ${location} and identify all food items visible. For each item, provide:
-- name: the item name
-- category: one of Produce, Dairy, Meat, Grain, Spice, Canned, Frozen, Beverage, Snack, Condiment, Other
-- quantity: estimated quantity (number)
-- unit: one of item, lb, oz, gal, ct, bag, box, can, bottle
-- opened: boolean - whether the item appears opened/unsealed or still sealed/unopened (look for opened containers, torn packaging, etc.)
-
-Do NOT estimate expiration dates - the system will calculate those based on item type, storage location (${location}), and opened status.
-
-Respond with a JSON array of objects only, no other text.`,
-            },
-            {
-              type: "image_url",
-              image_url: { url: `data:image/jpeg;base64,${base64Image}` },
-            },
-          ],
-        },
+        { role: "system", content: systemPrompt },
+        { role: "user", content },
       ],
-      max_tokens: 2000,
+      max_tokens: 4000,
+      temperature: 0.1,
     }),
   });
 
   const data = await response.json();
-  const content = data.choices?.[0]?.message?.content || "[]";
+  return data.choices?.[0]?.message?.content || "[]";
+}
+
+async function callProvider(
+  provider: ScanProvider,
+  model: string,
+  systemPrompt: string,
+  userPrompt: string,
+  base64Image?: string,
+  mimeType?: string
+): Promise<string> {
+  const config = getProviderConfig();
+
+  switch (provider) {
+    case "gemini":
+      return callGemini(config.geminiApiKey!, model, systemPrompt, userPrompt, base64Image, mimeType);
+    case "claude":
+      return callClaude(config.claudeApiKey!, model, systemPrompt, userPrompt, base64Image, mimeType);
+    case "openai":
+      return callOpenAI(config.openaiApiKey!, model, systemPrompt, userPrompt, base64Image, mimeType);
+  }
+}
+
+function extractJson(text: string): string {
+  // Try to find JSON array or object in the response
+  const arrayMatch = text.match(/\[[\s\S]*\]/);
+  if (arrayMatch) return arrayMatch[0];
+  const objMatch = text.match(/\{[\s\S]*\}/);
+  if (objMatch) return objMatch[0];
+  // Clean markdown code fences
+  return text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+}
+
+// ─── Public API ────────────────────────────────────────────────────────────
+
+/**
+ * Analyze an image to identify food items.
+ * Uses Gemini Flash as primary (bounding boxes, speed, cost),
+ * falls back to OpenAI or Claude.
+ */
+export async function analyzeImageForItems(
+  base64Image: string,
+  location: string
+): Promise<AnalyzedItem[]> {
+  const { provider, model, available } = getProviderForTask("scan");
+
+  if (!available) {
+    return getMockAnalysisResults(location);
+  }
+
+  const providerLabel = provider === "gemini" ? "Gemini Flash" : provider === "claude" ? "Claude" : "GPT-4o";
+  console.log(`[AI Scan] Using ${providerLabel} (${model}) for item detection`);
 
   try {
-    const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "");
-    return JSON.parse(cleaned);
-  } catch {
+    const raw = await callProvider(
+      provider,
+      model,
+      SCAN_SYSTEM_PROMPT,
+      buildScanPrompt(location),
+      base64Image
+    );
+
+    const json = extractJson(raw);
+    const items: AnalyzedItem[] = JSON.parse(json);
+
+    // Ensure all items have required fields with defaults
+    return items.map((item) => ({
+      name: item.name || "Unknown Item",
+      category: item.category || "Other",
+      quantity: item.quantity ?? 1,
+      unit: item.unit || "item",
+      opened: item.opened ?? false,
+      confidence: item.confidence ?? 0.5,
+      expirationDateFromLabel: item.expirationDateFromLabel || null,
+    }));
+  } catch (err) {
+    console.error(`[AI Scan] ${providerLabel} failed:`, err);
     return [];
   }
 }
 
+/**
+ * Read expiration dates from a label image using Claude (lowest hallucination rate).
+ * Falls back to other providers.
+ */
+export async function readExpirationDate(
+  base64Image: string
+): Promise<{ date: string | null; confidence: number; rawText: string | null }> {
+  const { provider, model, available } = getProviderForTask("ocr");
+
+  if (!available) {
+    return { date: null, confidence: 0, rawText: null };
+  }
+
+  const systemPrompt = `You are a food label OCR specialist. Your ONLY job is to find and read expiration dates.
+
+RULES:
+- Extract EXACT text from the label. Never invent text.
+- Return null if you cannot clearly read a date. Never guess.
+- Look for: "Best By", "Use By", "Sell By", "BB", "EXP", "Best Before", "Best If Used By"
+- Parse to ISO 8601 (YYYY-MM-DD)
+- Include confidence 0.0-1.0 based on text clarity`;
+
+  const userPrompt = `Read the expiration date from this food label.
+
+Return JSON: {"date": "YYYY-MM-DD" or null, "confidence": 0.0-1.0, "rawText": "the exact text you read" or null}
+
+If you cannot clearly read a date, return {"date": null, "confidence": 0, "rawText": null}. Do NOT guess.`;
+
+  try {
+    const raw = await callProvider(provider, model, systemPrompt, userPrompt, base64Image);
+    const json = extractJson(raw);
+    const result = JSON.parse(json);
+    return {
+      date: result.date || null,
+      confidence: result.confidence ?? 0,
+      rawText: result.rawText || null,
+    };
+  } catch {
+    return { date: null, confidence: 0, rawText: null };
+  }
+}
+
+/**
+ * Extract a recipe from a URL.
+ */
 export async function extractRecipeFromUrl(
   url: string
 ): Promise<ExtractedRecipe | null> {
-  if (!OPENAI_API_KEY || OPENAI_API_KEY === "your-openai-api-key-here") {
+  const { provider, model, available } = getProviderForTask("recipe");
+
+  if (!available) {
     return getMockRecipe(url);
   }
 
@@ -94,30 +320,19 @@ export async function extractRecipeFromUrl(
   try {
     const res = await fetch(url);
     pageContent = await res.text();
-    // Strip HTML tags for a rough text extraction
     pageContent = pageContent
       .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
       .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
       .replace(/<[^>]+>/g, " ")
       .replace(/\s+/g, " ")
       .trim()
-      .slice(0, 8000); // Limit content length
+      .slice(0, 8000);
   } catch {
     return null;
   }
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "user",
-          content: `Extract the recipe from this webpage content. Return a JSON object with:
+  const systemPrompt = "You are a recipe extraction specialist. Extract structured recipe data from webpage content.";
+  const userPrompt = `Extract the recipe from this webpage content. Return a JSON object with:
 - title: recipe name
 - description: brief description
 - servings: number of servings
@@ -130,30 +345,28 @@ export async function extractRecipeFromUrl(
 Webpage content:
 ${pageContent}
 
-Respond with JSON only, no other text.`,
-        },
-      ],
-      max_tokens: 3000,
-    }),
-  });
-
-  const data = await response.json();
-  const content = data.choices?.[0]?.message?.content || "null";
+Respond with JSON only.`;
 
   try {
-    const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "");
-    return JSON.parse(cleaned);
+    const raw = await callProvider(provider, model, systemPrompt, userPrompt);
+    const json = extractJson(raw);
+    return JSON.parse(json);
   } catch {
     return null;
   }
 }
 
+/**
+ * Generate meal plan suggestions based on pantry items.
+ */
 export async function generateMealPlanSuggestions(
   pantryItems: string[],
   scenario: string,
   headcount: number
 ): Promise<string[]> {
-  if (!OPENAI_API_KEY || OPENAI_API_KEY === "your-openai-api-key-here") {
+  const { provider, model, available } = getProviderForTask("suggest");
+
+  if (!available) {
     return [
       "Pasta with marinara sauce",
       "Grilled chicken salad",
@@ -163,36 +376,21 @@ export async function generateMealPlanSuggestions(
     ];
   }
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "user",
-          content: `Suggest 7 meal ideas based on these pantry items: ${pantryItems.join(", ")}.
+  const systemPrompt = "You are a meal planning assistant. Suggest practical meals using available ingredients.";
+  const userPrompt = `Suggest 7 meal ideas based on these pantry items: ${pantryItems.join(", ")}.
 Context: ${scenario} scenario with ${headcount} people.
-Return a JSON array of meal name strings only.`,
-        },
-      ],
-      max_tokens: 500,
-    }),
-  });
-
-  const data = await response.json();
-  const content = data.choices?.[0]?.message?.content || "[]";
+Return a JSON array of meal name strings only.`;
 
   try {
-    const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "");
-    return JSON.parse(cleaned);
+    const raw = await callProvider(provider, model, systemPrompt, userPrompt);
+    const json = extractJson(raw);
+    return JSON.parse(json);
   } catch {
     return [];
   }
 }
+
+// ─── Mock data for development without API keys ────────────────────────────
 
 function getMockAnalysisResults(location: string): AnalyzedItem[] {
   const now = new Date();
@@ -232,8 +430,10 @@ function getMockAnalysisResults(location: string): AnalyzedItem[] {
     const estimate = estimateExpiration(def.name, location, def.category, def.opened);
     return {
       ...def,
+      confidence: 0.95,
       estimatedExpiration: addDays(now, estimate.days),
       expiryEstimateReason: estimate.reason,
+      expirationDateFromLabel: null,
     };
   });
 }

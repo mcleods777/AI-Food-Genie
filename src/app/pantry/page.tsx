@@ -33,6 +33,9 @@ export default function PantryPage() {
   const [editingItem, setEditingItem] = useState<PantryItem | null>(null);
   const [scanResult, setScanResult] = useState<string | null>(null);
   const [tooltipItem, setTooltipItem] = useState<string | null>(null);
+  const [barcodeInput, setBarcodeInput] = useState("");
+  const [barcodeLoading, setBarcodeLoading] = useState(false);
+  const [barcodeResult, setBarcodeResult] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [newItem, setNewItem] = useState({
@@ -58,6 +61,31 @@ export default function PantryPage() {
     const data = await res.json();
     setItems(data);
     setLoading(false);
+  }
+
+  async function handleBarcodeScan(e: React.FormEvent) {
+    e.preventDefault();
+    if (!barcodeInput.trim()) return;
+
+    setBarcodeLoading(true);
+    setBarcodeResult(null);
+
+    const res = await fetch("/api/pantry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ barcode: barcodeInput.trim(), location: scanLocation }),
+    });
+
+    const data = await res.json();
+    setBarcodeLoading(false);
+
+    if (res.ok) {
+      setBarcodeResult(`Added: ${data.name}`);
+      setBarcodeInput("");
+      fetchItems();
+    } else {
+      setBarcodeResult(data.error || "Product not found");
+    }
   }
 
   async function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -167,49 +195,91 @@ export default function PantryPage() {
         </div>
       </div>
 
-      {/* AI Photo Scanner */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
-        <h2 className="text-lg font-semibold mb-3">AI Photo Scanner</h2>
-        <p className="text-sm text-gray-500 mb-4">
-          Take a photo of your pantry, refrigerator, freezer, or cabinets. AI will identify items and estimate expiration dates based on item type, storage method, and whether they&apos;re opened or sealed.
-        </p>
-        <div className="flex items-center gap-4">
-          <select
-            value={scanLocation}
-            onChange={(e) => setScanLocation(e.target.value)}
-            className="border rounded-lg px-3 py-2 text-sm"
-          >
-            {LOCATIONS.map((loc) => (
-              <option key={loc} value={loc}>{loc}</option>
-            ))}
-          </select>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={scanning}
-            className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50"
-          >
-            {scanning ? "Analyzing..." : "Upload Photo"}
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={handlePhotoUpload}
-          />
+      {/* Scanning Options */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        {/* Barcode Scanner */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <h2 className="text-lg font-semibold mb-2">Barcode Scanner</h2>
+          <p className="text-sm text-gray-500 mb-4">
+            Scan or type a barcode. Looks up product info from Open Food Facts (4M+ products).
+          </p>
+          <form onSubmit={handleBarcodeScan} className="flex gap-2">
+            <select
+              value={scanLocation}
+              onChange={(e) => setScanLocation(e.target.value)}
+              className="border rounded-lg px-3 py-2 text-sm"
+            >
+              {LOCATIONS.map((loc) => (
+                <option key={loc} value={loc}>{loc}</option>
+              ))}
+            </select>
+            <input
+              type="text"
+              inputMode="numeric"
+              placeholder="Enter barcode..."
+              value={barcodeInput}
+              onChange={(e) => setBarcodeInput(e.target.value)}
+              className="border rounded-lg px-3 py-2 text-sm flex-1"
+            />
+            <button
+              type="submit"
+              disabled={barcodeLoading}
+              className="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 transition-colors text-sm disabled:opacity-50"
+            >
+              {barcodeLoading ? "..." : "Look Up"}
+            </button>
+          </form>
+          {barcodeResult && (
+            <div className={`mt-3 px-3 py-2 rounded-lg text-sm ${barcodeResult.startsWith("Added") ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}>
+              {barcodeResult}
+            </div>
+          )}
         </div>
-        {scanning && (
-          <div className="mt-4 flex items-center gap-2 text-blue-600">
-            <div className="animate-spin w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full" />
-            <span className="text-sm">AI is analyzing your photo...</span>
+
+        {/* AI Photo Scanner */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <h2 className="text-lg font-semibold mb-2">AI Photo Scanner</h2>
+          <p className="text-sm text-gray-500 mb-4">
+            Photograph your shelves. AI identifies items, reads label dates, and estimates expiration.
+          </p>
+          <div className="flex items-center gap-3">
+            <select
+              value={scanLocation}
+              onChange={(e) => setScanLocation(e.target.value)}
+              className="border rounded-lg px-3 py-2 text-sm"
+            >
+              {LOCATIONS.map((loc) => (
+                <option key={loc} value={loc}>{loc}</option>
+              ))}
+            </select>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={scanning}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50"
+            >
+              {scanning ? "Analyzing..." : "Upload Photo"}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={handlePhotoUpload}
+            />
           </div>
-        )}
-        {scanResult && (
-          <div className="mt-4 bg-green-50 text-green-700 px-4 py-2 rounded-lg text-sm">
-            {scanResult}
-          </div>
-        )}
+          {scanning && (
+            <div className="mt-3 flex items-center gap-2 text-blue-600">
+              <div className="animate-spin w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full" />
+              <span className="text-sm">AI is analyzing your photo...</span>
+            </div>
+          )}
+          {scanResult && (
+            <div className="mt-3 bg-green-50 text-green-700 px-3 py-2 rounded-lg text-sm">
+              {scanResult}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Add Item Form */}
