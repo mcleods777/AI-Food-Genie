@@ -10,6 +10,8 @@ interface GroceryItem {
   unit: string;
   location: string;
   expirationDate: string | null;
+  expiryEstimateReason: string | null;
+  opened: boolean;
   purchaseDate: string | null;
   imageUrl: string | null;
   notes: string | null;
@@ -25,6 +27,7 @@ export default function GroceriesPage() {
   const [scanResult, setScanResult] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingExpiry, setEditingExpiry] = useState<{ id: string; date: string } | null>(null);
+  const [tooltipItem, setTooltipItem] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [newItem, setNewItem] = useState({
@@ -79,15 +82,50 @@ export default function GroceriesPage() {
     await fetch("/api/pantry", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, expirationDate: date || null }),
+      body: JSON.stringify({
+        id,
+        expirationDate: date || null,
+        expiryEstimateReason: date ? "Manually set expiration date" : null,
+      }),
     });
     setEditingExpiry(null);
     fetchItems();
   }
 
+  async function handleToggleOpened(item: GroceryItem) {
+    await fetch("/api/pantry", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: item.id,
+        opened: !item.opened,
+        recalculateExpiry: true,
+      }),
+    });
+    fetchItems();
+  }
+
   function formatDate(dateStr: string | null) {
-    if (!dateStr) return "—";
+    if (!dateStr) return "\u2014";
     return new Date(dateStr).toLocaleDateString();
+  }
+
+  function getExpiryClass(dateStr: string | null) {
+    if (!dateStr) return "";
+    const days = Math.floor((new Date(dateStr).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    if (days < 0) return "text-red-600 font-semibold";
+    if (days <= 3) return "text-orange-500 font-semibold";
+    if (days <= 7) return "text-amber-500";
+    return "text-gray-500";
+  }
+
+  function getExpiryLabel(dateStr: string | null): string {
+    if (!dateStr) return "";
+    const days = Math.floor((new Date(dateStr).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    if (days < 0) return `(expired ${Math.abs(days)}d ago)`;
+    if (days === 0) return "(expires today)";
+    if (days <= 7) return `(${days}d left)`;
+    return "";
   }
 
   return (
@@ -96,7 +134,7 @@ export default function GroceriesPage() {
         <div>
           <h1 className="text-3xl font-bold">Grocery Tracker</h1>
           <p className="text-gray-500 mt-1">
-            Photograph grocery purchases to catalog them with expiration dates
+            Photograph grocery purchases to catalog them with smart expiration estimates
           </p>
         </div>
         <button
@@ -111,8 +149,8 @@ export default function GroceriesPage() {
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
         <h2 className="text-lg font-semibold mb-3">Scan Grocery Receipt / Items</h2>
         <p className="text-sm text-gray-500 mb-4">
-          Take a photo of your grocery items or receipt. AI will catalog everything with estimated expiration dates.
-          You can retroactively adjust expiration dates after scanning.
+          Take a photo of your grocery items. AI catalogs everything with smart expiration estimates based on item type and recommended storage.
+          You can retroactively adjust expiration dates and mark items as opened (which shortens shelf life).
         </p>
         <div className="flex items-center gap-4">
           <button
@@ -147,7 +185,10 @@ export default function GroceriesPage() {
       {/* Add Item Form */}
       {showAddForm && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-4">Log Purchase Manually</h2>
+          <h2 className="text-lg font-semibold mb-2">Log Purchase Manually</h2>
+          <p className="text-xs text-gray-400 mb-4">
+            Leave expiration date blank to auto-estimate based on item type and storage.
+          </p>
           <form onSubmit={handleAddItem} className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <input
               required
@@ -185,7 +226,7 @@ export default function GroceriesPage() {
               value={newItem.expirationDate}
               onChange={(e) => setNewItem({ ...newItem, expirationDate: e.target.value })}
               className="border rounded-lg px-3 py-2 text-sm"
-              placeholder="Expiration date"
+              placeholder="Expiration (blank = auto)"
             />
             <input
               placeholder="Notes"
@@ -221,6 +262,7 @@ export default function GroceriesPage() {
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Item</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Category</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Qty</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Purchased</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Expires</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Actions</th>
@@ -232,8 +274,25 @@ export default function GroceriesPage() {
                   <td className="px-4 py-3 font-medium">{item.name}</td>
                   <td className="px-4 py-3 text-gray-500">{item.category}</td>
                   <td className="px-4 py-3 text-gray-500">{item.quantity} {item.unit}</td>
-                  <td className="px-4 py-3 text-gray-500">{formatDate(item.purchaseDate)}</td>
                   <td className="px-4 py-3">
+                    <button
+                      onClick={() => handleToggleOpened(item)}
+                      className={`text-xs px-2 py-1 rounded-full transition-colors ${
+                        item.opened
+                          ? "bg-orange-100 text-orange-700 hover:bg-orange-200"
+                          : "bg-green-100 text-green-700 hover:bg-green-200"
+                      }`}
+                      title={`${item.opened ? "Opened" : "Sealed"} - click to toggle (changes expiration estimate)`}
+                    >
+                      {item.opened ? "Opened" : "Sealed"}
+                    </button>
+                  </td>
+                  <td className="px-4 py-3 text-gray-500">{formatDate(item.purchaseDate)}</td>
+                  <td
+                    className={`px-4 py-3 relative ${getExpiryClass(item.expirationDate)}`}
+                    onMouseEnter={() => setTooltipItem(item.id)}
+                    onMouseLeave={() => setTooltipItem(null)}
+                  >
                     {editingExpiry?.id === item.id ? (
                       <div className="flex gap-1">
                         <input
@@ -248,15 +307,32 @@ export default function GroceriesPage() {
                         >
                           Save
                         </button>
+                        <button
+                          onClick={() => setEditingExpiry(null)}
+                          className="text-gray-400 hover:text-gray-600 text-xs"
+                        >
+                          Cancel
+                        </button>
                       </div>
                     ) : (
-                      <span
-                        onClick={() => setEditingExpiry({ id: item.id, date: item.expirationDate?.split("T")[0] || "" })}
-                        className="cursor-pointer hover:text-blue-600 underline-offset-2 hover:underline"
-                        title="Click to edit expiration date"
-                      >
-                        {formatDate(item.expirationDate)}
-                      </span>
+                      <div className="cursor-help">
+                        <span
+                          onClick={() => setEditingExpiry({ id: item.id, date: item.expirationDate?.split("T")[0] || "" })}
+                          className="cursor-pointer hover:text-blue-600 underline-offset-2 hover:underline"
+                          title="Click to edit expiration date"
+                        >
+                          {formatDate(item.expirationDate)}
+                        </span>
+                        {getExpiryLabel(item.expirationDate) && (
+                          <span className="text-xs ml-1">{getExpiryLabel(item.expirationDate)}</span>
+                        )}
+                        {tooltipItem === item.id && item.expiryEstimateReason && (
+                          <div className="absolute z-20 bottom-full left-0 mb-1 w-64 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 shadow-lg">
+                            {item.expiryEstimateReason}
+                            <div className="absolute top-full left-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-800" />
+                          </div>
+                        )}
+                      </div>
                     )}
                   </td>
                   <td className="px-4 py-3">

@@ -10,6 +10,8 @@ interface PantryItem {
   unit: string;
   location: string;
   expirationDate: string | null;
+  expiryEstimateReason: string | null;
+  opened: boolean;
   purchaseDate: string | null;
   imageUrl: string | null;
   notes: string | null;
@@ -30,6 +32,7 @@ export default function PantryPage() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingItem, setEditingItem] = useState<PantryItem | null>(null);
   const [scanResult, setScanResult] = useState<string | null>(null);
+  const [tooltipItem, setTooltipItem] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [newItem, setNewItem] = useState({
@@ -39,6 +42,7 @@ export default function PantryPage() {
     unit: "item",
     location: "Pantry",
     expirationDate: "",
+    opened: false,
     notes: "",
   });
 
@@ -80,7 +84,7 @@ export default function PantryPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(newItem),
     });
-    setNewItem({ name: "", category: "Other", quantity: 1, unit: "item", location: "Pantry", expirationDate: "", notes: "" });
+    setNewItem({ name: "", category: "Other", quantity: 1, unit: "item", location: "Pantry", expirationDate: "", opened: false, notes: "" });
     setShowAddForm(false);
     fetchItems();
   }
@@ -97,6 +101,19 @@ export default function PantryPage() {
     fetchItems();
   }
 
+  async function handleToggleOpened(item: PantryItem) {
+    await fetch("/api/pantry", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: item.id,
+        opened: !item.opened,
+        recalculateExpiry: true,
+      }),
+    });
+    fetchItems();
+  }
+
   async function handleDelete(id: string) {
     if (!confirm("Remove this item?")) return;
     await fetch(`/api/pantry?id=${id}`, { method: "DELETE" });
@@ -104,17 +121,31 @@ export default function PantryPage() {
   }
 
   function formatDate(dateStr: string | null) {
-    if (!dateStr) return "—";
+    if (!dateStr) return "\u2014";
     return new Date(dateStr).toLocaleDateString();
   }
 
+  function getDaysUntilExpiry(dateStr: string | null): number | null {
+    if (!dateStr) return null;
+    return Math.floor((new Date(dateStr).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+  }
+
   function getExpiryClass(dateStr: string | null) {
-    if (!dateStr) return "";
-    const days = Math.floor((new Date(dateStr).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    const days = getDaysUntilExpiry(dateStr);
+    if (days === null) return "";
     if (days < 0) return "text-red-600 font-semibold";
     if (days <= 3) return "text-orange-500 font-semibold";
     if (days <= 7) return "text-amber-500";
     return "text-gray-500";
+  }
+
+  function getExpiryLabel(dateStr: string | null): string {
+    const days = getDaysUntilExpiry(dateStr);
+    if (days === null) return "";
+    if (days < 0) return `(expired ${Math.abs(days)}d ago)`;
+    if (days === 0) return "(expires today)";
+    if (days <= 7) return `(${days}d left)`;
+    return "";
   }
 
   return (
@@ -140,7 +171,7 @@ export default function PantryPage() {
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
         <h2 className="text-lg font-semibold mb-3">AI Photo Scanner</h2>
         <p className="text-sm text-gray-500 mb-4">
-          Take a photo of your pantry, refrigerator, freezer, or cabinets. AI will identify and catalog all visible items.
+          Take a photo of your pantry, refrigerator, freezer, or cabinets. AI will identify items and estimate expiration dates based on item type, storage method, and whether they&apos;re opened or sealed.
         </p>
         <div className="flex items-center gap-4">
           <select
@@ -184,7 +215,10 @@ export default function PantryPage() {
       {/* Add Item Form */}
       {showAddForm && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-4">Add Item Manually</h2>
+          <h2 className="text-lg font-semibold mb-2">Add Item Manually</h2>
+          <p className="text-xs text-gray-400 mb-4">
+            Leave expiration date blank to auto-estimate based on item type, storage, and opened status.
+          </p>
           <form onSubmit={handleAddItem} className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <input
               required
@@ -228,8 +262,17 @@ export default function PantryPage() {
               value={newItem.expirationDate}
               onChange={(e) => setNewItem({ ...newItem, expirationDate: e.target.value })}
               className="border rounded-lg px-3 py-2 text-sm"
-              placeholder="Expiration date"
+              placeholder="Expiration (blank = auto)"
             />
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={newItem.opened}
+                onChange={(e) => setNewItem({ ...newItem, opened: e.target.checked })}
+                className="w-4 h-4 text-emerald-600 rounded"
+              />
+              <span>Already opened</span>
+            </label>
             <input
               placeholder="Notes"
               value={newItem.notes}
@@ -321,6 +364,20 @@ export default function PantryPage() {
                 className="border rounded-lg px-3 py-2 text-sm w-full"
                 placeholder="Expiration date"
               />
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={editingItem.opened}
+                  onChange={(e) => setEditingItem({ ...editingItem, opened: e.target.checked })}
+                  className="w-4 h-4 text-emerald-600 rounded"
+                />
+                <span>Opened / Unsealed</span>
+              </label>
+              {editingItem.expiryEstimateReason && (
+                <p className="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
+                  Estimate: {editingItem.expiryEstimateReason}
+                </p>
+              )}
               <div className="flex gap-2 pt-2">
                 <button type="submit" className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-emerald-700">
                   Save Changes
@@ -351,6 +408,7 @@ export default function PantryPage() {
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Category</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Location</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Qty</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Expires</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Actions</th>
               </tr>
@@ -371,8 +429,36 @@ export default function PantryPage() {
                   <td className="px-4 py-3 text-gray-500">
                     {item.quantity} {item.unit}
                   </td>
-                  <td className={`px-4 py-3 ${getExpiryClass(item.expirationDate)}`}>
-                    {formatDate(item.expirationDate)}
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={() => handleToggleOpened(item)}
+                      className={`text-xs px-2 py-1 rounded-full transition-colors ${
+                        item.opened
+                          ? "bg-orange-100 text-orange-700 hover:bg-orange-200"
+                          : "bg-green-100 text-green-700 hover:bg-green-200"
+                      }`}
+                      title={item.opened ? "Click to mark as sealed" : "Click to mark as opened"}
+                    >
+                      {item.opened ? "Opened" : "Sealed"}
+                    </button>
+                  </td>
+                  <td
+                    className={`px-4 py-3 ${getExpiryClass(item.expirationDate)} relative`}
+                    onMouseEnter={() => setTooltipItem(item.id)}
+                    onMouseLeave={() => setTooltipItem(null)}
+                  >
+                    <div className="cursor-help">
+                      {formatDate(item.expirationDate)}
+                      {getExpiryLabel(item.expirationDate) && (
+                        <span className="text-xs ml-1">{getExpiryLabel(item.expirationDate)}</span>
+                      )}
+                    </div>
+                    {tooltipItem === item.id && item.expiryEstimateReason && (
+                      <div className="absolute z-20 bottom-full left-0 mb-1 w-64 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 shadow-lg">
+                        {item.expiryEstimateReason}
+                        <div className="absolute top-full left-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-800" />
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex gap-2">

@@ -16,6 +16,8 @@ model PantryItem {
   unit          String    @default("item") // item, lb, oz, gal, ct, bag, box, can, bottle
   location      String    @default("Pantry") // Pantry, Refrigerator, Freezer, Cabinet
   expirationDate DateTime?
+  expiryEstimateReason String? // why this expiration was estimated (e.g. "Unopened milk, refrigerated: ~7-10 days")
+  opened        Boolean   @default(false) // whether the item has been opened/unsealed
   purchaseDate  DateTime?
   imageUrl      String?
   notes         String?

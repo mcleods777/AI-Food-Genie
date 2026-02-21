@@ -1,6 +1,8 @@
 // AI utility functions for food analysis and recipe extraction
 // These functions integrate with OpenAI's API for image analysis and web scraping
 
+import { estimateExpiration } from "./expiration";
+
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 interface AnalyzedItem {
@@ -9,6 +11,8 @@ interface AnalyzedItem {
   quantity: number;
   unit: string;
   estimatedExpiration?: string;
+  expiryEstimateReason?: string;
+  opened?: boolean;
 }
 
 interface ExtractedRecipe {
@@ -50,7 +54,9 @@ export async function analyzeImageForItems(
 - category: one of Produce, Dairy, Meat, Grain, Spice, Canned, Frozen, Beverage, Snack, Condiment, Other
 - quantity: estimated quantity (number)
 - unit: one of item, lb, oz, gal, ct, bag, box, can, bottle
-- estimatedExpiration: estimated days until expiration as a date string (YYYY-MM-DD)
+- opened: boolean - whether the item appears opened/unsealed or still sealed/unopened (look for opened containers, torn packaging, etc.)
+
+Do NOT estimate expiration dates - the system will calculate those based on item type, storage location (${location}), and opened status.
 
 Respond with a JSON array of objects only, no other text.`,
             },
@@ -190,35 +196,46 @@ Return a JSON array of meal name strings only.`,
 
 function getMockAnalysisResults(location: string): AnalyzedItem[] {
   const now = new Date();
-  const mockItems: Record<string, AnalyzedItem[]> = {
+
+  const mockItemDefs: Record<string, { name: string; category: string; quantity: number; unit: string; opened: boolean }[]> = {
     Refrigerator: [
-      { name: "Milk", category: "Dairy", quantity: 1, unit: "gal", estimatedExpiration: addDays(now, 7) },
-      { name: "Eggs", category: "Dairy", quantity: 12, unit: "ct", estimatedExpiration: addDays(now, 21) },
-      { name: "Cheddar Cheese", category: "Dairy", quantity: 8, unit: "oz", estimatedExpiration: addDays(now, 30) },
-      { name: "Chicken Breast", category: "Meat", quantity: 2, unit: "lb", estimatedExpiration: addDays(now, 3) },
-      { name: "Lettuce", category: "Produce", quantity: 1, unit: "item", estimatedExpiration: addDays(now, 5) },
+      { name: "Milk", category: "Dairy", quantity: 1, unit: "gal", opened: false },
+      { name: "Eggs", category: "Dairy", quantity: 12, unit: "ct", opened: false },
+      { name: "Cheddar Cheese", category: "Dairy", quantity: 8, unit: "oz", opened: false },
+      { name: "Chicken Breast", category: "Meat", quantity: 2, unit: "lb", opened: false },
+      { name: "Lettuce", category: "Produce", quantity: 1, unit: "item", opened: false },
     ],
     Pantry: [
-      { name: "Pasta", category: "Grain", quantity: 1, unit: "box", estimatedExpiration: addDays(now, 365) },
-      { name: "Rice", category: "Grain", quantity: 2, unit: "lb", estimatedExpiration: addDays(now, 365) },
-      { name: "Canned Tomatoes", category: "Canned", quantity: 3, unit: "can", estimatedExpiration: addDays(now, 730) },
-      { name: "Olive Oil", category: "Condiment", quantity: 1, unit: "bottle", estimatedExpiration: addDays(now, 180) },
-      { name: "Peanut Butter", category: "Other", quantity: 1, unit: "item", estimatedExpiration: addDays(now, 90) },
+      { name: "Pasta", category: "Grain", quantity: 1, unit: "box", opened: false },
+      { name: "Rice", category: "Grain", quantity: 2, unit: "lb", opened: false },
+      { name: "Canned Tomatoes", category: "Canned", quantity: 3, unit: "can", opened: false },
+      { name: "Olive Oil", category: "Condiment", quantity: 1, unit: "bottle", opened: true },
+      { name: "Peanut Butter", category: "Other", quantity: 1, unit: "item", opened: true },
     ],
     Cabinet: [
-      { name: "Salt", category: "Spice", quantity: 1, unit: "item", estimatedExpiration: addDays(now, 1825) },
-      { name: "Black Pepper", category: "Spice", quantity: 1, unit: "item", estimatedExpiration: addDays(now, 730) },
-      { name: "Garlic Powder", category: "Spice", quantity: 1, unit: "item", estimatedExpiration: addDays(now, 365) },
-      { name: "Flour", category: "Grain", quantity: 5, unit: "lb", estimatedExpiration: addDays(now, 180) },
-      { name: "Sugar", category: "Other", quantity: 4, unit: "lb", estimatedExpiration: addDays(now, 730) },
+      { name: "Salt", category: "Spice", quantity: 1, unit: "item", opened: true },
+      { name: "Black Pepper", category: "Spice", quantity: 1, unit: "item", opened: true },
+      { name: "Garlic Powder", category: "Spice", quantity: 1, unit: "item", opened: true },
+      { name: "Flour", category: "Grain", quantity: 5, unit: "lb", opened: false },
+      { name: "Sugar", category: "Other", quantity: 4, unit: "lb", opened: false },
     ],
     Freezer: [
-      { name: "Frozen Pizza", category: "Frozen", quantity: 2, unit: "item", estimatedExpiration: addDays(now, 90) },
-      { name: "Ice Cream", category: "Frozen", quantity: 1, unit: "item", estimatedExpiration: addDays(now, 60) },
-      { name: "Frozen Vegetables", category: "Frozen", quantity: 2, unit: "bag", estimatedExpiration: addDays(now, 180) },
+      { name: "Frozen Pizza", category: "Frozen", quantity: 2, unit: "item", opened: false },
+      { name: "Ice Cream", category: "Frozen", quantity: 1, unit: "item", opened: true },
+      { name: "Frozen Vegetables", category: "Frozen", quantity: 2, unit: "bag", opened: false },
     ],
   };
-  return mockItems[location] || mockItems["Pantry"];
+
+  const defs = mockItemDefs[location] || mockItemDefs["Pantry"];
+
+  return defs.map((def) => {
+    const estimate = estimateExpiration(def.name, location, def.category, def.opened);
+    return {
+      ...def,
+      estimatedExpiration: addDays(now, estimate.days),
+      expiryEstimateReason: estimate.reason,
+    };
+  });
 }
 
 function getMockRecipe(url: string): ExtractedRecipe {

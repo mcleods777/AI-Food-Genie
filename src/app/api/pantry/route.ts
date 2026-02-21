@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { analyzeImageForItems } from "@/lib/ai";
+import { calculateExpirationDate, estimateExpiration } from "@/lib/expiration";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
@@ -48,28 +49,39 @@ export async function POST(request: NextRequest) {
 
     // Analyze with AI
     const analyzedItems = await analyzeImageForItems(base64, location);
+    const now = new Date();
 
-    // Save items to database
+    // Save items to database with smart expiration estimates
     const createdItems = await Promise.all(
-      analyzedItems.map((item) =>
-        prisma.pantryItem.create({
+      analyzedItems.map((item) => {
+        const opened = item.opened ?? false;
+        const { date: expDate, reason } = calculateExpirationDate(
+          now,
+          item.name,
+          location,
+          item.category,
+          opened
+        );
+
+        return prisma.pantryItem.create({
           data: {
             name: item.name,
             category: item.category,
             quantity: item.quantity,
             unit: item.unit,
             location,
-            expirationDate: item.estimatedExpiration
-              ? new Date(item.estimatedExpiration)
-              : null,
+            opened,
+            expirationDate: expDate,
+            expiryEstimateReason: reason,
+            purchaseDate: now,
             imageUrl,
           },
-        })
-      )
+        });
+      })
     );
 
     return NextResponse.json({
-      message: `Found and cataloged ${createdItems.length} items`,
+      message: `Found and cataloged ${createdItems.length} items with smart expiration estimates`,
       items: createdItems,
       imageUrl,
     });
@@ -77,17 +89,33 @@ export async function POST(request: NextRequest) {
 
   // Handle manual item creation
   const body = await request.json();
+  const itemName = body.name;
+  const itemCategory = body.category || "Other";
+  const itemLocation = body.location || "Pantry";
+  const opened = body.opened ?? false;
+
+  // If no explicit expiration date provided, auto-estimate it
+  let expirationDate = body.expirationDate ? new Date(body.expirationDate) : null;
+  let expiryEstimateReason: string | null = null;
+
+  if (!expirationDate) {
+    const purchaseDate = body.purchaseDate ? new Date(body.purchaseDate) : new Date();
+    const estimated = calculateExpirationDate(purchaseDate, itemName, itemLocation, itemCategory, opened);
+    expirationDate = estimated.date;
+    expiryEstimateReason = estimated.reason;
+  }
+
   const item = await prisma.pantryItem.create({
     data: {
-      name: body.name,
-      category: body.category || "Other",
+      name: itemName,
+      category: itemCategory,
       quantity: body.quantity || 1,
       unit: body.unit || "item",
-      location: body.location || "Pantry",
-      expirationDate: body.expirationDate
-        ? new Date(body.expirationDate)
-        : null,
-      purchaseDate: body.purchaseDate ? new Date(body.purchaseDate) : null,
+      location: itemLocation,
+      opened,
+      expirationDate,
+      expiryEstimateReason,
+      purchaseDate: body.purchaseDate ? new Date(body.purchaseDate) : new Date(),
       notes: body.notes,
     },
   });
@@ -119,6 +147,28 @@ export async function PUT(request: NextRequest) {
       : null;
   if (data.notes !== undefined) updateData.notes = data.notes;
   if (data.needsRestock !== undefined) updateData.needsRestock = data.needsRestock;
+  if (data.expiryEstimateReason !== undefined) updateData.expiryEstimateReason = data.expiryEstimateReason;
+
+  // Handle opened status change - recalculate expiration if toggling opened
+  if (data.opened !== undefined) {
+    updateData.opened = data.opened;
+
+    // Recalculate expiration when opened status changes
+    if (data.recalculateExpiry) {
+      const existing = await prisma.pantryItem.findUnique({ where: { id } });
+      if (existing) {
+        const baseDate = existing.purchaseDate || existing.createdAt;
+        const name = (data.name as string) || existing.name;
+        const location = (data.location as string) || existing.location;
+        const category = (data.category as string) || existing.category;
+        const estimate = estimateExpiration(name, location, category, data.opened);
+        const newExpDate = new Date(baseDate);
+        newExpDate.setDate(newExpDate.getDate() + estimate.days);
+        updateData.expirationDate = newExpDate;
+        updateData.expiryEstimateReason = estimate.reason;
+      }
+    }
+  }
 
   const item = await prisma.pantryItem.update({
     where: { id },
