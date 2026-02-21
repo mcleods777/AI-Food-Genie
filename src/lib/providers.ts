@@ -1,5 +1,6 @@
 // Multi-provider AI configuration
-// Supports Gemini (primary scanner), Claude (OCR/dates), GPT-4o (fallback)
+// Consolidated Gemini-only architecture: Gemini handles all tasks (scan, OCR, recipe, suggest)
+// Claude and GPT-4o retained as fallbacks only
 
 export interface AIProviderConfig {
   geminiApiKey: string | null;
@@ -23,11 +24,11 @@ export type ScanProvider = "gemini" | "claude" | "openai";
 
 /**
  * Determines which provider to use for a given task.
- * Priority per the research:
- * - Item detection/scanning: Gemini Flash (bounding boxes, speed, cost)
- * - Expiration date OCR: Claude (lowest hallucination rate for dates)
- * - Recipe extraction / meal suggestions: best available
- * - Fallback: whatever is configured
+ * Consolidated architecture: Gemini Flash handles ALL tasks (detection, OCR, recipe, suggestions).
+ * - Lowest OCR edit distance (0.115 on OmniDocBench)
+ * - Single API = simpler architecture, lower cost, less latency
+ * - response_mime_type="application/json" for reliable structured parsing
+ * - GPT-4o and Claude retained as fallbacks if Gemini is unavailable
  */
 export function getProviderForTask(task: "scan" | "ocr" | "recipe" | "suggest"): {
   provider: ScanProvider;
@@ -36,44 +37,19 @@ export function getProviderForTask(task: "scan" | "ocr" | "recipe" | "suggest"):
 } {
   const config = getProviderConfig();
 
-  if (task === "scan") {
-    // Gemini Flash: best for item detection ($0.0003/scan, bounding boxes, 0.41s TTFT)
-    if (isConfigured(config.geminiApiKey)) {
-      return { provider: "gemini", model: "gemini-2.5-flash", available: true };
-    }
-    if (isConfigured(config.openaiApiKey)) {
-      return { provider: "openai", model: "gpt-4o", available: true };
-    }
-    if (isConfigured(config.claudeApiKey)) {
-      return { provider: "claude", model: "claude-sonnet-4-20250514", available: true };
-    }
-    return { provider: "gemini", model: "gemini-2.5-flash", available: false };
-  }
-
-  if (task === "ocr") {
-    // Claude: lowest hallucination rate (0.09%) for reading dates off labels
-    if (isConfigured(config.claudeApiKey)) {
-      return { provider: "claude", model: "claude-sonnet-4-20250514", available: true };
-    }
-    if (isConfigured(config.geminiApiKey)) {
-      return { provider: "gemini", model: "gemini-2.5-flash", available: true };
-    }
-    if (isConfigured(config.openaiApiKey)) {
-      return { provider: "openai", model: "gpt-4o", available: true };
-    }
-    return { provider: "claude", model: "claude-sonnet-4-20250514", available: false };
-  }
-
-  // recipe / suggest: use whatever's available, prefer cheaper options
+  // Gemini Flash: primary for ALL tasks
   if (isConfigured(config.geminiApiKey)) {
     return { provider: "gemini", model: "gemini-2.5-flash", available: true };
   }
+
+  // Fallback chain: GPT-4o → Claude
   if (isConfigured(config.openaiApiKey)) {
     return { provider: "openai", model: "gpt-4o", available: true };
   }
   if (isConfigured(config.claudeApiKey)) {
     return { provider: "claude", model: "claude-sonnet-4-20250514", available: true };
   }
+
   return { provider: "gemini", model: "gemini-2.5-flash", available: false };
 }
 

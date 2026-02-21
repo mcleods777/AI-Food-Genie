@@ -1,5 +1,7 @@
-// Multi-provider AI layer for food analysis
-// Routes tasks to the best model: Gemini (scanning), Claude (OCR), GPT-4o (fallback)
+// Consolidated Gemini-only AI layer for food analysis
+// Gemini handles all tasks: scanning, OCR, recipe extraction, meal suggestions
+// Note: strip EXIF orientation metadata from iPhone photos before sending to Gemini
+// (documented issue causes rotated bounding boxes). Use thinking level "minimal" for speed.
 
 import { estimateExpiration } from "./expiration";
 import { getProviderConfig, getProviderForTask, type ScanProvider } from "./providers";
@@ -217,8 +219,8 @@ function extractJson(text: string): string {
 
 /**
  * Analyze an image to identify food items.
- * Uses Gemini Flash as primary (bounding boxes, speed, cost),
- * falls back to OpenAI or Claude.
+ * Uses Gemini Flash for detection (bounding boxes, speed, cost).
+ * Falls back to GPT-4o or Claude if Gemini is unavailable.
  */
 export async function analyzeImageForItems(
   base64Image: string,
@@ -230,7 +232,7 @@ export async function analyzeImageForItems(
     return getMockAnalysisResults(location);
   }
 
-  const providerLabel = provider === "gemini" ? "Gemini Flash" : provider === "claude" ? "Claude" : "GPT-4o";
+  const providerLabel = provider === "gemini" ? "Gemini Flash" : provider === "openai" ? "GPT-4o" : "Claude";
   console.log(`[AI Scan] Using ${providerLabel} (${model}) for item detection`);
 
   try {
@@ -262,8 +264,10 @@ export async function analyzeImageForItems(
 }
 
 /**
- * Read expiration dates from a label image using Claude (lowest hallucination rate).
- * Falls back to other providers.
+ * Read expiration dates from a label image using Gemini Flash.
+ * Gemini achieves lowest OCR edit distance (0.115 on OmniDocBench).
+ * Uses response_mime_type="application/json" for structured output.
+ * Falls back to GPT-4o or Claude if Gemini is unavailable.
  */
 export async function readExpirationDate(
   base64Image: string
