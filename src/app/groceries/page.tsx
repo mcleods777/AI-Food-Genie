@@ -158,10 +158,10 @@ export default function GroceriesPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-3">
         <div>
-          <h1 className="text-3xl font-bold">Grocery Tracker</h1>
-          <p className="text-gray-500 mt-1">
+          <h1 className="text-2xl md:text-3xl font-bold">Grocery Tracker</h1>
+          <p className="text-gray-500 mt-1 text-sm">
             Photograph grocery purchases to catalog them with smart expiration estimates
           </p>
         </div>
@@ -316,97 +316,161 @@ export default function GroceriesPage() {
             <p>No grocery purchases logged yet. Snap a photo or add items manually.</p>
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Item</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Category</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Qty</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Purchased</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Expires</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50/50">
-                  <td className="px-4 py-3 font-medium">{item.name}</td>
-                  <td className="px-4 py-3 text-gray-500">{item.category}</td>
-                  <td className="px-4 py-3 text-gray-500">{item.quantity} {item.unit}</td>
-                  <td className="px-4 py-3">
-                    <button
-                      onClick={() => handleToggleOpened(item)}
-                      className={`text-xs px-2 py-1 rounded-full transition-colors ${
-                        item.opened
-                          ? "bg-orange-100 text-orange-700 hover:bg-orange-200"
-                          : "bg-green-100 text-green-700 hover:bg-green-200"
-                      }`}
-                      title={`${item.opened ? "Opened" : "Sealed"} - click to toggle (changes expiration estimate)`}
+          <>
+            {/* Desktop table — hidden on mobile */}
+            <table className="hidden md:table w-full text-sm">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Item</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Category</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Qty</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Purchased</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Expires</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item) => (
+                  <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                    <td className="px-4 py-3 font-medium">{item.name}</td>
+                    <td className="px-4 py-3 text-gray-500">{item.category}</td>
+                    <td className="px-4 py-3 text-gray-500">{item.quantity} {item.unit}</td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => handleToggleOpened(item)}
+                        className={`text-xs px-2 py-1 rounded-full transition-colors ${
+                          item.opened
+                            ? "bg-orange-100 text-orange-700 hover:bg-orange-200"
+                            : "bg-green-100 text-green-700 hover:bg-green-200"
+                        }`}
+                        title={`${item.opened ? "Opened" : "Sealed"} - click to toggle (changes expiration estimate)`}
+                      >
+                        {item.opened ? "Opened" : "Sealed"}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 text-gray-500">{formatDate(item.purchaseDate)}</td>
+                    <td
+                      className={`px-4 py-3 relative ${getExpiryClass(item.expirationDate)}`}
+                      onMouseEnter={() => setTooltipItem(item.id)}
+                      onMouseLeave={() => setTooltipItem(null)}
                     >
-                      {item.opened ? "Opened" : "Sealed"}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3 text-gray-500">{formatDate(item.purchaseDate)}</td>
-                  <td
-                    className={`px-4 py-3 relative ${getExpiryClass(item.expirationDate)}`}
-                    onMouseEnter={() => setTooltipItem(item.id)}
-                    onMouseLeave={() => setTooltipItem(null)}
-                  >
-                    {editingExpiry?.id === item.id ? (
-                      <div className="flex gap-1">
-                        <input
-                          type="date"
-                          value={editingExpiry.date}
-                          onChange={(e) => setEditingExpiry({ ...editingExpiry, date: e.target.value })}
-                          className="border rounded px-2 py-1 text-xs"
-                        />
-                        <button
-                          onClick={() => handleUpdateExpiry(item.id, editingExpiry.date)}
-                          className="text-emerald-600 hover:text-emerald-800 text-xs"
-                        >
-                          Save
-                        </button>
-                        <button
-                          onClick={() => setEditingExpiry(null)}
-                          className="text-gray-400 hover:text-gray-600 text-xs"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="cursor-help">
-                        <span
-                          onClick={() => setEditingExpiry({ id: item.id, date: item.expirationDate?.split("T")[0] || "" })}
-                          className="cursor-pointer hover:text-blue-600 underline-offset-2 hover:underline"
-                          title="Click to edit expiration date"
-                        >
-                          {formatDate(item.expirationDate)}
-                        </span>
-                        {getExpiryLabel(item.expirationDate) && (
-                          <span className="text-xs ml-1">{getExpiryLabel(item.expirationDate)}</span>
-                        )}
-                        {tooltipItem === item.id && item.expiryEstimateReason && (
-                          <div className="absolute z-20 bottom-full left-0 mb-1 w-64 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 shadow-lg">
-                            {item.expiryEstimateReason}
-                            <div className="absolute top-full left-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-800" />
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
+                      {editingExpiry?.id === item.id ? (
+                        <div className="flex gap-1">
+                          <input
+                            type="date"
+                            value={editingExpiry.date}
+                            onChange={(e) => setEditingExpiry({ ...editingExpiry, date: e.target.value })}
+                            className="border rounded px-2 py-1 text-xs"
+                          />
+                          <button
+                            onClick={() => handleUpdateExpiry(item.id, editingExpiry.date)}
+                            className="text-emerald-600 hover:text-emerald-800 text-xs"
+                          >
+                            Save
+                          </button>
+                          <button
+                            onClick={() => setEditingExpiry(null)}
+                            className="text-gray-400 hover:text-gray-600 text-xs"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="cursor-help">
+                          <span
+                            onClick={() => setEditingExpiry({ id: item.id, date: item.expirationDate?.split("T")[0] || "" })}
+                            className="cursor-pointer hover:text-blue-600 underline-offset-2 hover:underline"
+                            title="Click to edit expiration date"
+                          >
+                            {formatDate(item.expirationDate)}
+                          </span>
+                          {getExpiryLabel(item.expirationDate) && (
+                            <span className="text-xs ml-1">{getExpiryLabel(item.expirationDate)}</span>
+                          )}
+                          {tooltipItem === item.id && item.expiryEstimateReason && (
+                            <div className="absolute z-20 bottom-full left-0 mb-1 w-64 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 shadow-lg">
+                              {item.expiryEstimateReason}
+                              <div className="absolute top-full left-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-800" />
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => setEditingExpiry({ id: item.id, date: item.expirationDate?.split("T")[0] || "" })}
+                        className="text-blue-600 hover:text-blue-800 text-xs"
+                      >
+                        Set Expiry
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* Mobile card view — hidden on desktop */}
+            <div className="md:hidden divide-y divide-gray-100">
+              {items.map((item) => (
+                <div key={item.id} className="p-4">
+                  <div className="flex items-start justify-between mb-2">
+                    <span className="font-medium">{item.name}</span>
                     <button
                       onClick={() => setEditingExpiry({ id: item.id, date: item.expirationDate?.split("T")[0] || "" })}
-                      className="text-blue-600 hover:text-blue-800 text-xs"
+                      className="text-blue-600 text-sm py-1 ml-2"
                     >
                       Set Expiry
                     </button>
-                  </td>
-                </tr>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                    <span className="bg-gray-100 px-2 py-0.5 rounded">{item.category}</span>
+                    <span>{item.quantity} {item.unit}</span>
+                    <button
+                      onClick={() => handleToggleOpened(item)}
+                      className={`px-2 py-0.5 rounded-full transition-colors ${
+                        item.opened
+                          ? "bg-orange-100 text-orange-700"
+                          : "bg-green-100 text-green-700"
+                      }`}
+                    >
+                      {item.opened ? "Opened" : "Sealed"}
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between mt-1.5 text-xs">
+                    <span className="text-gray-400">Purchased: {formatDate(item.purchaseDate)}</span>
+                    {item.expirationDate && (
+                      <span className={getExpiryClass(item.expirationDate)}>
+                        Exp: {formatDate(item.expirationDate)} {getExpiryLabel(item.expirationDate)}
+                      </span>
+                    )}
+                  </div>
+                  {editingExpiry?.id === item.id && (
+                    <div className="flex gap-2 mt-2 items-center">
+                      <input
+                        type="date"
+                        value={editingExpiry.date}
+                        onChange={(e) => setEditingExpiry({ ...editingExpiry, date: e.target.value })}
+                        className="border rounded px-2 py-1.5 text-sm flex-1"
+                      />
+                      <button
+                        onClick={() => handleUpdateExpiry(item.id, editingExpiry.date)}
+                        className="text-emerald-600 text-sm font-medium py-1.5"
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={() => setEditingExpiry(null)}
+                        className="text-gray-400 text-sm py-1.5"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+          </>
         )}
       </div>
     </div>

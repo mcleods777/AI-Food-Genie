@@ -178,10 +178,10 @@ export default function PantryPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-3">
         <div>
-          <h1 className="text-3xl font-bold">Pantry & Inventory</h1>
-          <p className="text-gray-500 mt-1">
+          <h1 className="text-2xl md:text-3xl font-bold">Pantry & Inventory</h1>
+          <p className="text-gray-500 mt-1 text-sm">
             Scan your pantry, fridge, and cabinets or add items manually
           </p>
         </div>
@@ -461,7 +461,7 @@ export default function PantryPage() {
         </div>
       )}
 
-      {/* Items Table */}
+      {/* Items */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         {loading ? (
           <div className="p-12 text-center text-gray-400">Loading...</div>
@@ -471,85 +471,140 @@ export default function PantryPage() {
             <p>No items found. Scan your pantry or add items manually.</p>
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Item</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Category</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Location</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Qty</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Expires</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50/50">
-                  <td className="px-4 py-3 font-medium">
-                    {item.name}
-                    {item.needsRestock && (
-                      <span className="ml-2 text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">
-                        restock
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-gray-500">{item.category}</td>
-                  <td className="px-4 py-3 text-gray-500">{item.location}</td>
-                  <td className="px-4 py-3 text-gray-500">
-                    {item.quantity} {item.unit}
-                  </td>
-                  <td className="px-4 py-3">
-                    <button
-                      onClick={() => handleToggleOpened(item)}
-                      className={`text-xs px-2 py-1 rounded-full transition-colors ${
-                        item.opened
-                          ? "bg-orange-100 text-orange-700 hover:bg-orange-200"
-                          : "bg-green-100 text-green-700 hover:bg-green-200"
-                      }`}
-                      title={item.opened ? "Click to mark as sealed" : "Click to mark as opened"}
+          <>
+            {/* Desktop table — hidden on mobile */}
+            <table className="hidden md:table w-full text-sm">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Item</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Category</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Location</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Qty</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Expires</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item) => (
+                  <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                    <td className="px-4 py-3 font-medium">
+                      {item.name}
+                      {item.needsRestock && (
+                        <span className="ml-2 text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">
+                          restock
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-gray-500">{item.category}</td>
+                    <td className="px-4 py-3 text-gray-500">{item.location}</td>
+                    <td className="px-4 py-3 text-gray-500">
+                      {item.quantity} {item.unit}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => handleToggleOpened(item)}
+                        className={`text-xs px-2 py-1 rounded-full transition-colors ${
+                          item.opened
+                            ? "bg-orange-100 text-orange-700 hover:bg-orange-200"
+                            : "bg-green-100 text-green-700 hover:bg-green-200"
+                        }`}
+                        title={item.opened ? "Click to mark as sealed" : "Click to mark as opened"}
+                      >
+                        {item.opened ? "Opened" : "Sealed"}
+                      </button>
+                    </td>
+                    <td
+                      className={`px-4 py-3 ${getExpiryClass(item.expirationDate)} relative`}
+                      onMouseEnter={() => setTooltipItem(item.id)}
+                      onMouseLeave={() => setTooltipItem(null)}
                     >
-                      {item.opened ? "Opened" : "Sealed"}
-                    </button>
-                  </td>
-                  <td
-                    className={`px-4 py-3 ${getExpiryClass(item.expirationDate)} relative`}
-                    onMouseEnter={() => setTooltipItem(item.id)}
-                    onMouseLeave={() => setTooltipItem(null)}
-                  >
-                    <div className="cursor-help">
-                      {formatDate(item.expirationDate)}
-                      {getExpiryLabel(item.expirationDate) && (
-                        <span className="text-xs ml-1">{getExpiryLabel(item.expirationDate)}</span>
+                      <div className="cursor-help">
+                        {formatDate(item.expirationDate)}
+                        {getExpiryLabel(item.expirationDate) && (
+                          <span className="text-xs ml-1">{getExpiryLabel(item.expirationDate)}</span>
+                        )}
+                      </div>
+                      {tooltipItem === item.id && item.expiryEstimateReason && (
+                        <div className="absolute z-20 bottom-full left-0 mb-1 w-64 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 shadow-lg">
+                          {item.expiryEstimateReason}
+                          <div className="absolute top-full left-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-800" />
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setEditingItem(item)}
+                          className="text-blue-600 hover:text-blue-800 text-xs"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDelete(item.id)}
+                          className="text-red-500 hover:text-red-700 text-xs"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* Mobile card view — hidden on desktop */}
+            <div className="md:hidden divide-y divide-gray-100">
+              {items.map((item) => (
+                <div key={item.id} className="p-4">
+                  <div className="flex items-start justify-between mb-2">
+                    <div>
+                      <span className="font-medium">{item.name}</span>
+                      {item.needsRestock && (
+                        <span className="ml-2 text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">
+                          restock
+                        </span>
                       )}
                     </div>
-                    {tooltipItem === item.id && item.expiryEstimateReason && (
-                      <div className="absolute z-20 bottom-full left-0 mb-1 w-64 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 shadow-lg">
-                        {item.expiryEstimateReason}
-                        <div className="absolute top-full left-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-800" />
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-2">
+                    <div className="flex gap-3 ml-2">
                       <button
                         onClick={() => setEditingItem(item)}
-                        className="text-blue-600 hover:text-blue-800 text-xs"
+                        className="text-blue-600 hover:text-blue-800 text-sm py-1"
                       >
                         Edit
                       </button>
                       <button
                         onClick={() => handleDelete(item.id)}
-                        className="text-red-500 hover:text-red-700 text-xs"
+                        className="text-red-500 hover:text-red-700 text-sm py-1"
                       >
                         Delete
                       </button>
                     </div>
-                  </td>
-                </tr>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                    <span className="bg-gray-100 px-2 py-0.5 rounded">{item.category}</span>
+                    <span className="bg-gray-100 px-2 py-0.5 rounded">{item.location}</span>
+                    <span>{item.quantity} {item.unit}</span>
+                    <button
+                      onClick={() => handleToggleOpened(item)}
+                      className={`px-2 py-0.5 rounded-full transition-colors ${
+                        item.opened
+                          ? "bg-orange-100 text-orange-700"
+                          : "bg-green-100 text-green-700"
+                      }`}
+                    >
+                      {item.opened ? "Opened" : "Sealed"}
+                    </button>
+                  </div>
+                  {item.expirationDate && (
+                    <div className={`mt-1.5 text-xs ${getExpiryClass(item.expirationDate)}`}>
+                      Expires: {formatDate(item.expirationDate)} {getExpiryLabel(item.expirationDate)}
+                    </div>
+                  )}
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+          </>
         )}
       </div>
     </div>

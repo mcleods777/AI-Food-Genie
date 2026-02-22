@@ -164,10 +164,10 @@ export default function MealPlannerPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-3">
         <div>
-          <h1 className="text-3xl font-bold">Meal Planner</h1>
-          <p className="text-gray-500 mt-1">
+          <h1 className="text-2xl md:text-3xl font-bold">Meal Planner</h1>
+          <p className="text-gray-500 mt-1 text-sm">
             Plan weekly meals based on household size and schedule
           </p>
         </div>
@@ -280,63 +280,134 @@ export default function MealPlannerPage() {
       {loading ? (
         <div className="p-12 text-center text-gray-400">Loading...</div>
       ) : (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b">
-                <tr>
-                  <th className="text-left px-3 py-3 font-medium text-gray-600 w-20">Meal</th>
-                  {weekDays.map((day) => (
-                    <th key={day.toISOString()} className="text-center px-2 py-3 font-medium text-gray-600 min-w-[120px]">
-                      <div>{day.toLocaleDateString("en-US", { weekday: "short" })}</div>
-                      <div className="text-xs text-gray-400">{day.toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
-                    </th>
+        <>
+          {/* Desktop table — hidden on mobile */}
+          <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b">
+                  <tr>
+                    <th className="text-left px-3 py-3 font-medium text-gray-600 w-20">Meal</th>
+                    {weekDays.map((day) => (
+                      <th key={day.toISOString()} className="text-center px-2 py-3 font-medium text-gray-600 min-w-[120px]">
+                        <div>{day.toLocaleDateString("en-US", { weekday: "short" })}</div>
+                        <div className="text-xs text-gray-400">{day.toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {MEAL_TYPES.map((mealType) => (
+                    <tr key={mealType} className="border-b border-gray-50">
+                      <td className="px-3 py-3 font-medium text-gray-600 text-xs uppercase tracking-wider">
+                        {mealType}
+                      </td>
+                      {weekDays.map((day) => {
+                        const dayEntries = getEntriesForDay(day, mealType);
+                        const dateStr = day.toISOString().split("T")[0];
+                        return (
+                          <td key={day.toISOString()} className="px-2 py-2 align-top">
+                            {dayEntries.map((entry) => (
+                              <div key={entry.id} className="bg-emerald-50 rounded-lg p-2 mb-1 group relative">
+                                <p className="text-xs font-medium text-emerald-800">
+                                  {entry.recipe?.title || entry.customMeal}
+                                </p>
+                                <p className="text-xs text-emerald-600">{entry.servings}sv</p>
+                                <button
+                                  onClick={() => handleDeleteEntry(entry.id)}
+                                  className="absolute top-1 right-1 text-emerald-400 hover:text-red-500 opacity-0 group-hover:opacity-100 text-xs"
+                                >
+                                  &times;
+                                </button>
+                              </div>
+                            ))}
+                            <button
+                              onClick={() => {
+                                setAddingMeal({ date: dateStr, mealType });
+                                setMealForm({ recipeId: "", customMeal: "", servings: 2, notes: "" });
+                              }}
+                              className="text-xs text-gray-300 hover:text-emerald-500 w-full text-center py-1"
+                            >
+                              +
+                            </button>
+                          </td>
+                        );
+                      })}
+                    </tr>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
-                {MEAL_TYPES.map((mealType) => (
-                  <tr key={mealType} className="border-b border-gray-50">
-                    <td className="px-3 py-3 font-medium text-gray-600 text-xs uppercase tracking-wider">
-                      {mealType}
-                    </td>
-                    {weekDays.map((day) => {
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Mobile day-by-day view — hidden on desktop */}
+          <div className="md:hidden space-y-3">
+            {weekDays.map((day) => {
+              const dateStr = day.toISOString().split("T")[0];
+              const isToday = new Date().toISOString().split("T")[0] === dateStr;
+              return (
+                <div
+                  key={day.toISOString()}
+                  className={`bg-white rounded-xl shadow-sm border overflow-hidden ${
+                    isToday ? "border-emerald-300 ring-1 ring-emerald-200" : "border-gray-100"
+                  }`}
+                >
+                  <div className={`px-4 py-2.5 border-b ${isToday ? "bg-emerald-50" : "bg-gray-50"}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-sm">
+                        {day.toLocaleDateString("en-US", { weekday: "long" })}
+                      </span>
+                      <span className={`text-xs ${isToday ? "text-emerald-600 font-medium" : "text-gray-400"}`}>
+                        {isToday ? "Today" : day.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="p-3 space-y-2">
+                    {MEAL_TYPES.map((mealType) => {
                       const dayEntries = getEntriesForDay(day, mealType);
-                      const dateStr = day.toISOString().split("T")[0];
                       return (
-                        <td key={day.toISOString()} className="px-2 py-2 align-top">
-                          {dayEntries.map((entry) => (
-                            <div key={entry.id} className="bg-emerald-50 rounded-lg p-2 mb-1 group relative">
-                              <p className="text-xs font-medium text-emerald-800">
-                                {entry.recipe?.title || entry.customMeal}
-                              </p>
-                              <p className="text-xs text-emerald-600">{entry.servings}sv</p>
-                              <button
-                                onClick={() => handleDeleteEntry(entry.id)}
-                                className="absolute top-1 right-1 text-emerald-400 hover:text-red-500 opacity-0 group-hover:opacity-100 text-xs"
-                              >
-                                &times;
-                              </button>
-                            </div>
-                          ))}
-                          <button
-                            onClick={() => {
-                              setAddingMeal({ date: dateStr, mealType });
-                              setMealForm({ recipeId: "", customMeal: "", servings: 2, notes: "" });
-                            }}
-                            className="text-xs text-gray-300 hover:text-emerald-500 w-full text-center py-1"
-                          >
-                            +
-                          </button>
-                        </td>
+                        <div key={mealType}>
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">{mealType}</span>
+                            <button
+                              onClick={() => {
+                                setAddingMeal({ date: dateStr, mealType });
+                                setMealForm({ recipeId: "", customMeal: "", servings: 2, notes: "" });
+                              }}
+                              className="text-emerald-500 text-xs px-2 py-1"
+                            >
+                              + Add
+                            </button>
+                          </div>
+                          {dayEntries.length > 0 ? (
+                            dayEntries.map((entry) => (
+                              <div key={entry.id} className="flex items-center justify-between bg-emerald-50 rounded-lg px-3 py-2 mt-1">
+                                <div>
+                                  <p className="text-sm font-medium text-emerald-800">
+                                    {entry.recipe?.title || entry.customMeal}
+                                  </p>
+                                  <p className="text-xs text-emerald-600">{entry.servings} servings{entry.notes ? ` — ${entry.notes}` : ""}</p>
+                                </div>
+                                <button
+                                  onClick={() => handleDeleteEntry(entry.id)}
+                                  className="text-emerald-400 hover:text-red-500 text-lg px-2"
+                                >
+                                  &times;
+                                </button>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-xs text-gray-300 mt-1 ml-1">No meal planned</p>
+                          )}
+                        </div>
                       );
                     })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        </div>
+        </>
       )}
 
       {/* Add Meal Modal */}
