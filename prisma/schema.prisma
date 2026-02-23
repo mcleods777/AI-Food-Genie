@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // Pantry/inventory items detected from photos or manually added
@@ -16,11 +17,11 @@ model PantryItem {
   unit          String    @default("item") // item, lb, oz, gal, ct, bag, box, can, bottle
   location      String    @default("Pantry") // Pantry, Refrigerator, Freezer, Cabinet
   expirationDate DateTime?
-  expiryEstimateReason String? // why this expiration was estimated (e.g. "Unopened milk, refrigerated: ~7-10 days")
+  expiryEstimateReason String? @db.Text // why this expiration was estimated
   opened        Boolean   @default(false) // whether the item has been opened/unsealed
   purchaseDate  DateTime?
   imageUrl      String?
-  notes         String?
+  notes         String?   @db.Text
   needsRestock  Boolean   @default(false)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -33,12 +34,12 @@ model PantryItem {
 model Recipe {
   id           String   @id @default(uuid())
   title        String
-  description  String?
+  description  String?  @db.Text
   sourceUrl    String?
   servings     Int      @default(4)
   prepTime     Int?     // minutes
   cookTime     Int?     // minutes
-  instructions String?  // stored as JSON array of steps
+  instructions String?  @db.Text // stored as JSON array of steps
   imageUrl     String?
   tags         String?  // comma-separated tags
   createdAt    DateTime @default(now())
@@ -70,7 +71,7 @@ model MealPlanEntry {
   recipeId  String?
   customMeal String? // for meals not tied to a recipe
   servings  Int      @default(2)
-  notes     String?
+  notes     String?  @db.Text
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -83,7 +84,7 @@ model HouseholdConfig {
   name      String  @default("Default")
   scenario  String  // "solo", "with_kids", "with_partner", "with_partner_and_kids", "special_occasion"
   headcount Int     @default(1)
-  notes     String?
+  notes     String? @db.Text
   isDefault Boolean @default(false)
 }
 
@@ -96,7 +97,7 @@ model ShoppingListItem {
   category     String  @default("Other")
   checked      Boolean @default(false)
   pantryItemId String?
-  notes        String?
+  notes        String? @db.Text
   createdAt    DateTime @default(now())
 
   pantryItem PantryItem? @relation(fields: [pantryItemId], references: [id], onDelete: SetNull)
@@ -106,7 +107,7 @@ model ShoppingListItem {
 model AuditLog {
   id        String   @id @default(uuid())
   type      String   // "full_audit", "expiration_check", "restock_check"
-  summary   String?
-  details   String?  // JSON with audit findings
+  summary   String?  @db.Text
+  details   String?  @db.Text // JSON with audit findings
   createdAt DateTime @default(now())
 }
