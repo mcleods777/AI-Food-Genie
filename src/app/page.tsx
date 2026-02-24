@@ -10,7 +10,8 @@ export default async function Dashboard() {
   const ocrProvider = getProviderForTask("ocr");
 
   let pantryCount = 0, expiringCount = 0, recipeCount = 0, shoppingCount = 0;
-  let upcomingMeals: Awaited<ReturnType<typeof prisma.mealPlanEntry.findMany>> = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let upcomingMeals: any[] = [];
   let needsRestock = 0;
 
   try {
