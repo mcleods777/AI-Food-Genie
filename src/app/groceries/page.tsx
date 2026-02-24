@@ -61,21 +61,34 @@ export default function GroceriesPage() {
     setBarcodeLoading(true);
     setBarcodeResult(null);
 
-    const res = await fetch("/api/groceries", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ barcode: barcode.trim() }),
-    });
+    try {
+      const res = await fetch("/api/groceries", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ barcode: barcode.trim() }),
+      });
 
-    const data = await res.json();
-    setBarcodeLoading(false);
+      let data;
+      try {
+        data = await res.json();
+      } catch {
+        setBarcodeLoading(false);
+        setBarcodeResult("Server error. Please try again.");
+        return;
+      }
 
-    if (res.ok) {
-      setBarcodeResult(`Added: ${data.name}`);
-      setBarcodeInput("");
-      fetchItems();
-    } else {
-      setBarcodeResult(data.error || "Product not found");
+      setBarcodeLoading(false);
+
+      if (res.ok) {
+        setBarcodeResult(`Added: ${data.name || "item"}`);
+        setBarcodeInput("");
+        fetchItems();
+      } else {
+        setBarcodeResult(data.error || "Product not found");
+      }
+    } catch {
+      setBarcodeLoading(false);
+      setBarcodeResult("Network error. Check your connection and try again.");
     }
   }, []);
 

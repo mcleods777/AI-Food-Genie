@@ -71,21 +71,34 @@ export default function PantryPage() {
     setBarcodeLoading(true);
     setBarcodeResult(null);
 
-    const res = await fetch("/api/pantry", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ barcode: barcode.trim(), location: scanLocation }),
-    });
+    try {
+      const res = await fetch("/api/pantry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ barcode: barcode.trim(), location: scanLocation }),
+      });
 
-    const data = await res.json();
-    setBarcodeLoading(false);
+      let data;
+      try {
+        data = await res.json();
+      } catch {
+        setBarcodeLoading(false);
+        setBarcodeResult("Server error. Please try again.");
+        return;
+      }
 
-    if (res.ok) {
-      setBarcodeResult(`Added: ${data.name}`);
-      setBarcodeInput("");
-      fetchItems();
-    } else {
-      setBarcodeResult(data.error || "Product not found");
+      setBarcodeLoading(false);
+
+      if (res.ok) {
+        setBarcodeResult(`Added: ${data.name || "item"}`);
+        setBarcodeInput("");
+        fetchItems();
+      } else {
+        setBarcodeResult(data.error || "Product not found");
+      }
+    } catch {
+      setBarcodeLoading(false);
+      setBarcodeResult("Network error. Check your connection and try again.");
     }
   }, [scanLocation]);
 
