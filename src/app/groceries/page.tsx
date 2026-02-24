@@ -1,6 +1,9 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import dynamic from "next/dynamic";
+
+const BarcodeScanner = dynamic(() => import("@/components/BarcodeScanner"), { ssr: false });
 
 interface GroceryItem {
   id: string;
@@ -31,6 +34,7 @@ export default function GroceriesPage() {
   const [barcodeInput, setBarcodeInput] = useState("");
   const [barcodeLoading, setBarcodeLoading] = useState(false);
   const [barcodeResult, setBarcodeResult] = useState<string | null>(null);
+  const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [newItem, setNewItem] = useState({
@@ -53,17 +57,14 @@ export default function GroceriesPage() {
     setLoading(false);
   }
 
-  async function handleBarcodeScan(e: React.FormEvent) {
-    e.preventDefault();
-    if (!barcodeInput.trim()) return;
-
+  const submitBarcode = useCallback(async (barcode: string) => {
     setBarcodeLoading(true);
     setBarcodeResult(null);
 
     const res = await fetch("/api/groceries", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ barcode: barcodeInput.trim() }),
+      body: JSON.stringify({ barcode: barcode.trim() }),
     });
 
     const data = await res.json();
@@ -76,7 +77,19 @@ export default function GroceriesPage() {
     } else {
       setBarcodeResult(data.error || "Product not found");
     }
+  }, []);
+
+  async function handleBarcodeScan(e: React.FormEvent) {
+    e.preventDefault();
+    if (!barcodeInput.trim()) return;
+    submitBarcode(barcodeInput.trim());
   }
+
+  const handleBarcodeDetected = useCallback((barcode: string) => {
+    setShowBarcodeScanner(false);
+    setBarcodeInput(barcode);
+    submitBarcode(barcode);
+  }, [submitBarcode]);
 
   async function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -181,11 +194,19 @@ export default function GroceriesPage() {
           <p className="text-sm text-gray-500 mb-4">
             Scan a barcode to instantly look up product info and auto-assign storage &amp; expiration.
           </p>
+          <button
+            type="button"
+            onClick={() => setShowBarcodeScanner(true)}
+            disabled={barcodeLoading}
+            className="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 transition-colors text-sm disabled:opacity-50 w-full mb-3"
+          >
+            Scan with Camera
+          </button>
           <form onSubmit={handleBarcodeScan} className="flex gap-2">
             <input
               type="text"
               inputMode="numeric"
-              placeholder="Enter barcode..."
+              placeholder="Or type barcode..."
               value={barcodeInput}
               onChange={(e) => setBarcodeInput(e.target.value)}
               className="border rounded-lg px-3 py-2 text-sm flex-1"
@@ -193,7 +214,7 @@ export default function GroceriesPage() {
             <button
               type="submit"
               disabled={barcodeLoading}
-              className="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 transition-colors text-sm disabled:opacity-50"
+              className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors text-sm disabled:opacity-50"
             >
               {barcodeLoading ? "..." : "Look Up"}
             </button>
@@ -473,6 +494,12 @@ export default function GroceriesPage() {
           </>
         )}
       </div>
+      {showBarcodeScanner && (
+        <BarcodeScanner
+          onDetected={handleBarcodeDetected}
+          onClose={() => setShowBarcodeScanner(false)}
+        />
+      )}
     </div>
   );
 }
