@@ -8,30 +8,39 @@ export default async function Dashboard() {
   const providers = getProviderStatus();
   const scanProvider = getProviderForTask("scan");
   const ocrProvider = getProviderForTask("ocr");
-  const [pantryCount, expiringCount, recipeCount, shoppingCount, upcomingMeals] =
-    await Promise.all([
-      prisma.pantryItem.count(),
-      prisma.pantryItem.count({
-        where: {
-          expirationDate: {
-            lte: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000), // 3 days
-            gte: new Date(),
-          },
-        },
-      }),
-      prisma.recipe.count(),
-      prisma.shoppingListItem.count({ where: { checked: false } }),
-      prisma.mealPlanEntry.findMany({
-        where: { date: { gte: new Date() } },
-        include: { recipe: true },
-        orderBy: { date: "asc" },
-        take: 5,
-      }),
-    ]);
 
-  const needsRestock = await prisma.pantryItem.count({
-    where: { needsRestock: true },
-  });
+  let pantryCount = 0, expiringCount = 0, recipeCount = 0, shoppingCount = 0;
+  let upcomingMeals: Awaited<ReturnType<typeof prisma.mealPlanEntry.findMany>> = [];
+  let needsRestock = 0;
+
+  try {
+    [pantryCount, expiringCount, recipeCount, shoppingCount, upcomingMeals] =
+      await Promise.all([
+        prisma.pantryItem.count(),
+        prisma.pantryItem.count({
+          where: {
+            expirationDate: {
+              lte: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000), // 3 days
+              gte: new Date(),
+            },
+          },
+        }),
+        prisma.recipe.count(),
+        prisma.shoppingListItem.count({ where: { checked: false } }),
+        prisma.mealPlanEntry.findMany({
+          where: { date: { gte: new Date() } },
+          include: { recipe: true },
+          orderBy: { date: "asc" },
+          take: 5,
+        }),
+      ]);
+
+    needsRestock = await prisma.pantryItem.count({
+      where: { needsRestock: true },
+    });
+  } catch {
+    // Database may be unavailable on cold start — show zeros rather than crashing
+  }
 
   const stats = [
     { label: "Pantry Items", value: pantryCount, href: "/pantry", color: "bg-emerald-500" },
