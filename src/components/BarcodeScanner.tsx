@@ -10,14 +10,20 @@ interface BarcodeScannerProps {
 export default function BarcodeScanner({ onDetected, onClose }: BarcodeScannerProps) {
   const scannerRef = useRef<HTMLDivElement>(null);
   const html5QrCodeRef = useRef<unknown>(null);
+  const onDetectedRef = useRef(onDetected);
   const [error, setError] = useState<string | null>(null);
+
+  // Keep the ref current without re-running the effect
+  onDetectedRef.current = onDetected;
 
   useEffect(() => {
     let scanner: { stop: () => Promise<void>; clear: () => void } | null = null;
+    let stopped = false;
 
     async function startScanner() {
       try {
         const { Html5Qrcode } = await import("html5-qrcode");
+        if (stopped) return;
         const html5QrCode = new Html5Qrcode("barcode-reader");
         html5QrCodeRef.current = html5QrCode;
         scanner = html5QrCode;
@@ -29,7 +35,7 @@ export default function BarcodeScanner({ onDetected, onClose }: BarcodeScannerPr
             qrbox: { width: 250, height: 150 },
           },
           (decodedText: string) => {
-            onDetected(decodedText);
+            onDetectedRef.current(decodedText);
             html5QrCode.stop().catch(() => {});
           },
           () => {
@@ -37,6 +43,7 @@ export default function BarcodeScanner({ onDetected, onClose }: BarcodeScannerPr
           }
         );
       } catch (err) {
+        if (stopped) return;
         const message = err instanceof Error ? err.message : String(err);
         if (message.includes("Permission")) {
           setError("Camera permission denied. Please allow camera access and try again.");
@@ -51,12 +58,13 @@ export default function BarcodeScanner({ onDetected, onClose }: BarcodeScannerPr
     startScanner();
 
     return () => {
+      stopped = true;
       if (scanner) {
         scanner.stop().catch(() => {});
         scanner.clear();
       }
     };
-  }, [onDetected]);
+  }, []);
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
