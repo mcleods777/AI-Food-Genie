@@ -51,10 +51,15 @@ export default function GroceriesPage() {
   }, []);
 
   async function fetchItems() {
-    const res = await fetch("/api/groceries");
-    const data = await res.json();
-    setItems(data);
-    setLoading(false);
+    try {
+      const res = await fetch("/api/groceries");
+      const data = await res.json();
+      setItems(data);
+    } catch {
+      // API or database may be temporarily unavailable
+    } finally {
+      setLoading(false);
+    }
   }
 
   const submitBarcode = useCallback(async (barcode: string) => {

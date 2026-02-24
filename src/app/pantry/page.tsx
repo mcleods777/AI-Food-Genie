@@ -58,13 +58,18 @@ export default function PantryPage() {
   }, [filterLocation, filterCategory]);
 
   async function fetchItems() {
-    const params = new URLSearchParams();
-    if (filterLocation) params.set("location", filterLocation);
-    if (filterCategory) params.set("category", filterCategory);
-    const res = await fetch(`/api/pantry?${params}`);
-    const data = await res.json();
-    setItems(data);
-    setLoading(false);
+    try {
+      const params = new URLSearchParams();
+      if (filterLocation) params.set("location", filterLocation);
+      if (filterCategory) params.set("category", filterCategory);
+      const res = await fetch(`/api/pantry?${params}`);
+      const data = await res.json();
+      setItems(data);
+    } catch {
+      // API or database may be temporarily unavailable
+    } finally {
+      setLoading(false);
+    }
   }
 
   const submitBarcode = useCallback(async (barcode: string) => {
