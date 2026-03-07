@@ -42,6 +42,41 @@ export default function PantryPage() {
   const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size === items.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(items.map((i) => i.id)));
+    }
+  }
+
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Delete ${selectedIds.size} selected item${selectedIds.size !== 1 ? "s" : ""}?`)) return;
+    setBulkDeleting(true);
+    try {
+      await fetch(`/api/pantry?ids=${Array.from(selectedIds).join(",")}`, { method: "DELETE" });
+      setSelectedIds(new Set());
+      fetchItems();
+    } catch {
+      // Network error
+    } finally {
+      setBulkDeleting(false);
+    }
+  }
+
   const [newItem, setNewItem] = useState({
     name: "",
     category: "Other",
@@ -64,7 +99,13 @@ export default function PantryPage() {
       if (filterCategory) params.set("category", filterCategory);
       const res = await fetch(`/api/pantry?${params}`);
       const data = await res.json();
-      setItems(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      setItems(list);
+      setSelectedIds((prev) => {
+        const validIds = new Set(list.map((i: PantryItem) => i.id));
+        const next = new Set([...prev].filter((id) => validIds.has(id)));
+        return next.size === prev.size ? prev : next;
+      });
     } catch {
       // API or database may be temporarily unavailable
     } finally {
@@ -402,6 +443,28 @@ export default function PantryPage() {
         </div>
       )}
 
+      {/* Bulk delete bar */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 mb-4 bg-red-50 border border-red-200 rounded-lg px-4 py-2">
+          <span className="text-sm font-medium text-red-700">
+            {selectedIds.size} selected
+          </span>
+          <button
+            onClick={handleBulkDelete}
+            disabled={bulkDeleting}
+            className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-red-700 transition-colors disabled:opacity-50"
+          >
+            {bulkDeleting ? "Deleting..." : `Delete Selected`}
+          </button>
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="text-gray-500 hover:text-gray-700 text-sm"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="flex gap-3 mb-4">
         <select
@@ -517,6 +580,14 @@ export default function PantryPage() {
             <table className="hidden md:table w-full text-sm">
               <thead className="bg-gray-50 border-b">
                 <tr>
+                  <th className="px-4 py-3 w-10">
+                    <input
+                      type="checkbox"
+                      checked={items.length > 0 && selectedIds.size === items.length}
+                      onChange={toggleSelectAll}
+                      className="w-4 h-4 text-emerald-600 rounded cursor-pointer"
+                    />
+                  </th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Item</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Category</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Location</th>
@@ -528,7 +599,15 @@ export default function PantryPage() {
               </thead>
               <tbody>
                 {items.map((item) => (
-                  <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                  <tr key={item.id} className={`border-b border-gray-50 hover:bg-gray-50/50 ${selectedIds.has(item.id) ? "bg-emerald-50/50" : ""}`}>
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(item.id)}
+                        onChange={() => toggleSelect(item.id)}
+                        className="w-4 h-4 text-emerald-600 rounded cursor-pointer"
+                      />
+                    </td>
                     <td className="px-4 py-3 font-medium">
                       {item.name}
                       {item.needsRestock && (
@@ -597,15 +676,23 @@ export default function PantryPage() {
             {/* Mobile card view — hidden on desktop */}
             <div className="md:hidden divide-y divide-gray-100">
               {items.map((item) => (
-                <div key={item.id} className="p-4">
+                <div key={item.id} className={`p-4 ${selectedIds.has(item.id) ? "bg-emerald-50/50" : ""}`}>
                   <div className="flex items-start justify-between mb-2">
-                    <div>
-                      <span className="font-medium">{item.name}</span>
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(item.id)}
+                        onChange={() => toggleSelect(item.id)}
+                        className="w-4 h-4 text-emerald-600 rounded cursor-pointer mt-1"
+                      />
+                      <div>
+                        <span className="font-medium">{item.name}</span>
                       {item.needsRestock && (
                         <span className="ml-2 text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">
                           restock
                         </span>
                       )}
+                      </div>
                     </div>
                     <div className="flex gap-3 ml-2">
                       <button
