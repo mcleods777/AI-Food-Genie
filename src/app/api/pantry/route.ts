@@ -135,7 +135,11 @@ export async function POST(request: NextRequest) {
           expiryEstimateReason: estimated.reason,
           purchaseDate: now,
           imageUrl: product.imageUrl,
-          notes: product.ingredients ? `Ingredients: ${product.ingredients.slice(0, 200)}` : null,
+          barcode: body.barcode,
+          brand: product.brand,
+          ingredients: product.ingredients,
+          nutriScore: product.nutriScore,
+          novaGroup: product.novaGroup,
         },
       });
 
