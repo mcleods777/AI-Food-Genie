@@ -5,7 +5,6 @@ generator client {
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
-  directUrl = env("POSTGRES_URL_NON_POOLING")
 }
 
 // Pantry/inventory items detected from photos or manually added
