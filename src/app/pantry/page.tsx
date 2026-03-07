@@ -19,6 +19,39 @@ interface PantryItem {
   imageUrl: string | null;
   notes: string | null;
   needsRestock: boolean;
+  barcode: string | null;
+  brand: string | null;
+  ingredients: string | null;
+  nutriScore: string | null;
+  novaGroup: number | null;
+}
+
+interface ProductDetails {
+  barcode: string;
+  name: string;
+  brand: string | null;
+  category: string | null;
+  imageUrl: string | null;
+  ingredients: string | null;
+  nutriScore: string | null;
+  novaGroup: number | null;
+  quantity: string | null;
+  allergens: string[];
+  nutriments: {
+    energy_kcal: number | null;
+    fat: number | null;
+    saturatedFat: number | null;
+    carbs: number | null;
+    sugars: number | null;
+    fiber: number | null;
+    protein: number | null;
+    salt: number | null;
+    sodium: number | null;
+  } | null;
+  labels: string | null;
+  origins: string | null;
+  stores: string | null;
+  url: string;
 }
 
 const LOCATIONS = ["Pantry", "Refrigerator", "Freezer", "Cabinet"];
@@ -44,6 +77,27 @@ export default function PantryPage() {
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [detailItem, setDetailItem] = useState<PantryItem | null>(null);
+  const [productDetails, setProductDetails] = useState<ProductDetails | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  async function openProductDetail(item: PantryItem) {
+    setDetailItem(item);
+    setProductDetails(null);
+    if (item.barcode) {
+      setDetailLoading(true);
+      try {
+        const res = await fetch(`/api/pantry/product?barcode=${encodeURIComponent(item.barcode)}`);
+        if (res.ok) {
+          setProductDetails(await res.json());
+        }
+      } catch {
+        // Failed to fetch live details
+      } finally {
+        setDetailLoading(false);
+      }
+    }
+  }
 
   function toggleSelect(id: string) {
     setSelectedIds((prev) => {
@@ -609,7 +663,12 @@ export default function PantryPage() {
                       />
                     </td>
                     <td className="px-4 py-3 font-medium">
-                      {item.name}
+                      <button
+                        onClick={() => openProductDetail(item)}
+                        className="text-left hover:text-emerald-700 hover:underline transition-colors"
+                      >
+                        {item.name}
+                      </button>
                       {item.needsRestock && (
                         <span className="ml-2 text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">
                           restock
@@ -686,7 +745,12 @@ export default function PantryPage() {
                         className="w-4 h-4 text-emerald-600 rounded cursor-pointer mt-1"
                       />
                       <div>
-                        <span className="font-medium">{item.name}</span>
+                        <button
+                          onClick={() => openProductDetail(item)}
+                          className="font-medium text-left hover:text-emerald-700 hover:underline transition-colors"
+                        >
+                          {item.name}
+                        </button>
                       {item.needsRestock && (
                         <span className="ml-2 text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">
                           restock
@@ -735,6 +799,214 @@ export default function PantryPage() {
           </>
         )}
       </div>
+
+      {/* Product Detail Modal */}
+      {detailItem && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between rounded-t-xl">
+              <h3 className="text-lg font-semibold truncate pr-4">{detailItem.name}</h3>
+              <button
+                onClick={() => { setDetailItem(null); setProductDetails(null); }}
+                className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
+              >
+                &times;
+              </button>
+            </div>
+            <div className="p-6 space-y-6">
+              {/* Product image + basic info */}
+              <div className="flex gap-6">
+                {(productDetails?.imageUrl || detailItem.imageUrl) && (
+                  <div className="flex-shrink-0">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={productDetails?.imageUrl || detailItem.imageUrl || ""}
+                      alt={detailItem.name}
+                      className="w-32 h-32 object-contain rounded-lg border"
+                    />
+                  </div>
+                )}
+                <div className="flex-1 space-y-2">
+                  {detailItem.brand && (
+                    <p className="text-sm text-gray-500">Brand: <span className="text-gray-700 font-medium">{detailItem.brand}</span></p>
+                  )}
+                  {detailItem.barcode && (
+                    <p className="text-sm text-gray-500">Barcode: <span className="font-mono text-gray-700">{detailItem.barcode}</span></p>
+                  )}
+                  <p className="text-sm text-gray-500">Category: <span className="text-gray-700">{detailItem.category}</span></p>
+                  <p className="text-sm text-gray-500">Location: <span className="text-gray-700">{detailItem.location}</span></p>
+                  <p className="text-sm text-gray-500">Quantity: <span className="text-gray-700">{detailItem.quantity} {detailItem.unit}</span></p>
+                  <p className="text-sm text-gray-500">
+                    Status:{" "}
+                    <span className={`px-2 py-0.5 rounded-full text-xs ${detailItem.opened ? "bg-orange-100 text-orange-700" : "bg-green-100 text-green-700"}`}>
+                      {detailItem.opened ? "Opened" : "Sealed"}
+                    </span>
+                  </p>
+                  {detailItem.expirationDate && (
+                    <p className={`text-sm ${getExpiryClass(detailItem.expirationDate)}`}>
+                      Expires: {formatDate(detailItem.expirationDate)} {getExpiryLabel(detailItem.expirationDate)}
+                    </p>
+                  )}
+                  {detailItem.purchaseDate && (
+                    <p className="text-sm text-gray-500">Purchased: {formatDate(detailItem.purchaseDate)}</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Nutri-Score and NOVA */}
+              {(detailItem.nutriScore || detailItem.novaGroup || productDetails?.nutriScore || productDetails?.novaGroup) && (
+                <div className="flex gap-4">
+                  {(productDetails?.nutriScore || detailItem.nutriScore) && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-500">Nutri-Score:</span>
+                      <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-white font-bold text-sm uppercase ${
+                        {a: "bg-green-600", b: "bg-lime-500", c: "bg-yellow-500", d: "bg-orange-500", e: "bg-red-600"}[
+                          (productDetails?.nutriScore || detailItem.nutriScore || "").toLowerCase()
+                        ] || "bg-gray-400"
+                      }`}>
+                        {(productDetails?.nutriScore || detailItem.nutriScore || "").toUpperCase()}
+                      </span>
+                    </div>
+                  )}
+                  {(productDetails?.novaGroup || detailItem.novaGroup) && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-500">NOVA Group:</span>
+                      <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-white font-bold text-sm ${
+                        {1: "bg-green-600", 2: "bg-yellow-500", 3: "bg-orange-500", 4: "bg-red-600"}[
+                          productDetails?.novaGroup || detailItem.novaGroup || 0
+                        ] || "bg-gray-400"
+                      }`}>
+                        {productDetails?.novaGroup || detailItem.novaGroup}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Loading indicator for live data */}
+              {detailLoading && (
+                <div className="flex items-center gap-2 text-blue-600">
+                  <div className="animate-spin w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full" />
+                  <span className="text-sm">Fetching product details from Open Food Facts...</span>
+                </div>
+              )}
+
+              {/* Nutrition facts from live API */}
+              {productDetails?.nutriments && (
+                <div>
+                  <h4 className="font-semibold text-sm mb-2">Nutrition Facts <span className="font-normal text-gray-400">(per 100g)</span></h4>
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <table className="w-full text-sm">
+                      <tbody>
+                        {[
+                          ["Energy", productDetails.nutriments.energy_kcal, "kcal"],
+                          ["Fat", productDetails.nutriments.fat, "g"],
+                          ["  Saturated Fat", productDetails.nutriments.saturatedFat, "g"],
+                          ["Carbohydrates", productDetails.nutriments.carbs, "g"],
+                          ["  Sugars", productDetails.nutriments.sugars, "g"],
+                          ["Fiber", productDetails.nutriments.fiber, "g"],
+                          ["Protein", productDetails.nutriments.protein, "g"],
+                          ["Salt", productDetails.nutriments.salt, "g"],
+                        ].filter(([, val]) => val != null).map(([label, value, unit]) => (
+                          <tr key={label as string} className="border-b border-gray-200 last:border-0">
+                            <td className={`py-1.5 text-gray-600 ${(label as string).startsWith("  ") ? "pl-4 text-gray-400" : ""}`}>
+                              {(label as string).trim()}
+                            </td>
+                            <td className="py-1.5 text-right font-medium">
+                              {typeof value === "number" ? value.toFixed(1) : value} {unit}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Ingredients */}
+              {(productDetails?.ingredients || detailItem.ingredients) && (
+                <div>
+                  <h4 className="font-semibold text-sm mb-2">Ingredients</h4>
+                  <p className="text-sm text-gray-600 bg-gray-50 rounded-lg p-4">
+                    {productDetails?.ingredients || detailItem.ingredients}
+                  </p>
+                </div>
+              )}
+
+              {/* Allergens */}
+              {productDetails?.allergens && productDetails.allergens.length > 0 && (
+                <div>
+                  <h4 className="font-semibold text-sm mb-2">Allergens</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {productDetails.allergens.map((a) => (
+                      <span key={a} className="bg-red-50 text-red-700 px-3 py-1 rounded-full text-xs font-medium capitalize">
+                        {a}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Additional info */}
+              {(productDetails?.labels || productDetails?.origins) && (
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  {productDetails.labels && (
+                    <div>
+                      <span className="text-gray-500">Labels:</span>
+                      <p className="text-gray-700 mt-1">{productDetails.labels}</p>
+                    </div>
+                  )}
+                  {productDetails.origins && (
+                    <div>
+                      <span className="text-gray-500">Origins:</span>
+                      <p className="text-gray-700 mt-1">{productDetails.origins}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Expiry estimate reason */}
+              {detailItem.expiryEstimateReason && (
+                <div>
+                  <h4 className="font-semibold text-sm mb-2">Expiration Estimate</h4>
+                  <p className="text-sm text-gray-600 bg-amber-50 rounded-lg p-3">
+                    {detailItem.expiryEstimateReason}
+                  </p>
+                </div>
+              )}
+
+              {/* Notes */}
+              {detailItem.notes && (
+                <div>
+                  <h4 className="font-semibold text-sm mb-2">Notes</h4>
+                  <p className="text-sm text-gray-600 bg-gray-50 rounded-lg p-3">{detailItem.notes}</p>
+                </div>
+              )}
+
+              {/* Open Food Facts link */}
+              {productDetails?.url && (
+                <div className="pt-2 border-t">
+                  <a
+                    href={productDetails.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                  >
+                    View on Open Food Facts &rarr;
+                  </a>
+                </div>
+              )}
+
+              {/* No barcode message */}
+              {!detailItem.barcode && (
+                <p className="text-sm text-gray-400 italic">
+                  This item was added manually or via photo scan. Scan a barcode to see full product details.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {showBarcodeScanner && (
         <BarcodeScanner

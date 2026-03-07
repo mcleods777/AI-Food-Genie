@@ -22,6 +22,11 @@ model PantryItem {
   imageUrl      String?
   notes         String?   @db.Text
   needsRestock  Boolean   @default(false)
+  barcode       String?   // barcode string from scan
+  brand         String?   // product brand from Open Food Facts
+  ingredients   String?   @db.Text // full ingredients list
+  nutriScore    String?   // Nutri-Score grade (a-e)
+  novaGroup     Int?      // NOVA food processing group (1-4)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
