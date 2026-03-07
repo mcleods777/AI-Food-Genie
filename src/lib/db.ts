@@ -11,10 +11,14 @@ function getDatasourceUrl() {
   return `${url}${sep}connect_timeout=15&connection_limit=1`;
 }
 
-export const prisma =
-  globalForPrisma.prisma ||
-  new PrismaClient({
+function createPrismaClient() {
+  const client = new PrismaClient({
     datasourceUrl: getDatasourceUrl(),
+    log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
   });
+  return client;
+}
+
+export const prisma = globalForPrisma.prisma || createPrismaClient();
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
