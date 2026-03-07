@@ -239,6 +239,16 @@ export async function PUT(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
+  const ids = searchParams.get("ids");
+
+  if (ids) {
+    const idList = ids.split(",").filter(Boolean);
+    if (idList.length === 0) {
+      return NextResponse.json({ error: "No IDs provided" }, { status: 400 });
+    }
+    const result = await prisma.pantryItem.deleteMany({ where: { id: { in: idList } } });
+    return NextResponse.json({ success: true, deleted: result.count });
+  }
 
   if (!id) {
     return NextResponse.json({ error: "ID required" }, { status: 400 });
