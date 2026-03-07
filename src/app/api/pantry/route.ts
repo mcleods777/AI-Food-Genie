@@ -8,20 +8,24 @@ import path from "path";
 import { v4 as uuidv4 } from "uuid";
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const location = searchParams.get("location");
-  const category = searchParams.get("category");
+  try {
+    const { searchParams } = new URL(request.url);
+    const location = searchParams.get("location");
+    const category = searchParams.get("category");
 
-  const where: Record<string, unknown> = {};
-  if (location) where.location = location;
-  if (category) where.category = category;
+    const where: Record<string, unknown> = {};
+    if (location) where.location = location;
+    if (category) where.category = category;
 
-  const items = await prisma.pantryItem.findMany({
-    where,
-    orderBy: { updatedAt: "desc" },
-  });
+    const items = await prisma.pantryItem.findMany({
+      where,
+      orderBy: { updatedAt: "desc" },
+    });
 
-  return NextResponse.json(items);
+    return NextResponse.json(items);
+  } catch {
+    return NextResponse.json([], { status: 200 });
+  }
 }
 
 export async function POST(request: NextRequest) {
