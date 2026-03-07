@@ -12,13 +12,13 @@ export default function Error({
   const [retrying, setRetrying] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
 
-  // Auto-retry once after 2 seconds (handles Neon cold-start)
+  // Auto-retry silently on first error (handles Neon cold-start)
   useEffect(() => {
     if (retryCount === 0) {
       const timer = setTimeout(() => {
         setRetryCount(1);
         reset();
-      }, 2000);
+      }, 500);
       return () => clearTimeout(timer);
     }
   }, [retryCount, reset]);
@@ -30,6 +30,18 @@ export default function Error({
       reset();
       setRetrying(false);
     }, 500);
+  }
+
+  // Show a silent loading spinner during first auto-retry (cold-start recovery)
+  if (retryCount === 0) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-center">
+          <div className="animate-spin w-8 h-8 border-3 border-emerald-600 border-t-transparent rounded-full mx-auto mb-3" />
+          <p className="text-gray-400 text-sm">Loading...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
