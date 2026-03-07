@@ -8,7 +8,7 @@ function getDatasourceUrl() {
   if (!url) return undefined;
   const sep = url.includes("?") ? "&" : "?";
   if (url.includes("connect_timeout")) return url;
-  return `${url}${sep}connect_timeout=5`;
+  return `${url}${sep}connect_timeout=15&connection_limit=1`;
 }
 
 export const prisma =

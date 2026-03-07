@@ -1,26 +1,18 @@
-import { prisma } from "@/lib/db";
 import { getProviderStatus, getProviderForTask } from "@/lib/providers";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
-export default async function Dashboard() {
-  const providers = getProviderStatus();
-  const scanProvider = getProviderForTask("scan");
-  const ocrProvider = getProviderForTask("ocr");
-
-  let pantryCount = 0, expiringCount = 0, recipeCount = 0, shoppingCount = 0;
-  let upcomingMeals: (Awaited<ReturnType<typeof prisma.mealPlanEntry.findMany>>[number] & { recipe?: { title: string } | null }) [] = [];
-  let needsRestock = 0;
-
+async function getDashboardData() {
   try {
-    [pantryCount, expiringCount, recipeCount, shoppingCount, upcomingMeals] =
+    const { prisma } = await import("@/lib/db");
+    const [pantryCount, expiringCount, recipeCount, shoppingCount, upcomingMeals] =
       await Promise.all([
         prisma.pantryItem.count(),
         prisma.pantryItem.count({
           where: {
             expirationDate: {
-              lte: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000), // 3 days
+              lte: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
               gte: new Date(),
             },
           },
@@ -35,12 +27,29 @@ export default async function Dashboard() {
         }),
       ]);
 
-    needsRestock = await prisma.pantryItem.count({
+    const needsRestock = await prisma.pantryItem.count({
       where: { needsRestock: true },
     });
-  } catch {
-    // Database may be unavailable on cold start — show zeros rather than crashing
+
+    return { pantryCount, expiringCount, recipeCount, shoppingCount, upcomingMeals, needsRestock };
+  } catch (e) {
+    console.error("Dashboard DB query failed:", e);
+    return null;
   }
+}
+
+export default async function Dashboard() {
+  const providers = getProviderStatus();
+  const scanProvider = getProviderForTask("scan");
+  const ocrProvider = getProviderForTask("ocr");
+
+  const data = await getDashboardData();
+  const pantryCount = data?.pantryCount ?? 0;
+  const expiringCount = data?.expiringCount ?? 0;
+  const recipeCount = data?.recipeCount ?? 0;
+  const shoppingCount = data?.shoppingCount ?? 0;
+  const upcomingMeals = data?.upcomingMeals ?? [];
+  const needsRestock = data?.needsRestock ?? 0;
 
   const stats = [
     { label: "Pantry Items", value: pantryCount, href: "/pantry", color: "bg-emerald-500" },
