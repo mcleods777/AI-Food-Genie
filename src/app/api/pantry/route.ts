@@ -144,9 +144,11 @@ export async function POST(request: NextRequest) {
       });
 
       return NextResponse.json(item, { status: 201 });
-    } catch {
+    } catch (err) {
+      console.error("Barcode processing error:", err);
+      const message = err instanceof Error ? err.message : "Unknown error";
       return NextResponse.json(
-        { error: "Failed to process barcode. Please try again." },
+        { error: `Failed to process barcode: ${message}` },
         { status: 500 }
       );
     }
