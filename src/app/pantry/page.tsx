@@ -64,7 +64,7 @@ export default function PantryPage() {
       if (filterCategory) params.set("category", filterCategory);
       const res = await fetch(`/api/pantry?${params}`);
       const data = await res.json();
-      setItems(data);
+      setItems(Array.isArray(data) ? data : []);
     } catch {
       // API or database may be temporarily unavailable
     } finally {

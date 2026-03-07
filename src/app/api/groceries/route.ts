@@ -8,11 +8,15 @@ import path from "path";
 import { v4 as uuidv4 } from "uuid";
 
 export async function GET() {
-  const items = await prisma.pantryItem.findMany({
-    where: { purchaseDate: { not: null } },
-    orderBy: { purchaseDate: "desc" },
-  });
-  return NextResponse.json(items);
+  try {
+    const items = await prisma.pantryItem.findMany({
+      where: { purchaseDate: { not: null } },
+      orderBy: { purchaseDate: "desc" },
+    });
+    return NextResponse.json(items);
+  } catch {
+    return NextResponse.json([], { status: 200 });
+  }
 }
 
 export async function POST(request: NextRequest) {

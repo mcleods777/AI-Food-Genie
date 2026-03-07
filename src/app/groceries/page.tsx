@@ -54,7 +54,7 @@ export default function GroceriesPage() {
     try {
       const res = await fetch("/api/groceries");
       const data = await res.json();
-      setItems(data);
+      setItems(Array.isArray(data) ? data : []);
     } catch {
       // API or database may be temporarily unavailable
     } finally {
