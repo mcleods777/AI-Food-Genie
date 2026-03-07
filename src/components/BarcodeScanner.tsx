@@ -35,8 +35,12 @@ export default function BarcodeScanner({ onDetected, onClose }: BarcodeScannerPr
             qrbox: { width: 250, height: 150 },
           },
           (decodedText: string) => {
+            // Mark as stopped to prevent cleanup from double-stopping
+            stopped = true;
+            html5QrCode.stop().then(() => {
+              try { html5QrCode.clear(); } catch { /* already cleaned */ }
+            }).catch(() => {});
             onDetectedRef.current(decodedText);
-            html5QrCode.stop().catch(() => {});
           },
           () => {
             // Ignore scan failures (happens every frame without a barcode)
@@ -58,10 +62,12 @@ export default function BarcodeScanner({ onDetected, onClose }: BarcodeScannerPr
     startScanner();
 
     return () => {
+      if (stopped) return; // Already cleaned up by successful scan
       stopped = true;
       if (scanner) {
-        scanner.stop().catch(() => {});
-        scanner.clear();
+        scanner.stop().then(() => {
+          try { scanner!.clear(); } catch { /* ignore */ }
+        }).catch(() => {});
       }
     };
   }, []);
