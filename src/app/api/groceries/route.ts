@@ -110,19 +110,24 @@ export async function POST(request: NextRequest) {
 
     const estimated = calculateExpirationDate(now, product.name, location, product.category, false);
 
+    const baseData = {
+      name: product.brand ? `${product.brand} ${product.name}` : product.name,
+      category: product.category,
+      quantity: body.quantity || 1,
+      unit: body.unit || "item",
+      location,
+      opened: false,
+      purchaseDate: now,
+      expirationDate: estimated.date,
+      expiryEstimateReason: estimated.reason,
+      imageUrl: product.imageUrl,
+    };
+
     try {
+      // Try with all barcode fields first
       const item = await prisma.pantryItem.create({
         data: {
-          name: product.brand ? `${product.brand} ${product.name}` : product.name,
-          category: product.category,
-          quantity: body.quantity || 1,
-          unit: body.unit || "item",
-          location,
-          opened: false,
-          purchaseDate: now,
-          expirationDate: estimated.date,
-          expiryEstimateReason: estimated.reason,
-          imageUrl: product.imageUrl,
+          ...baseData,
           barcode: body.barcode,
           brand: product.brand,
           ingredients: product.ingredients,
@@ -130,14 +135,19 @@ export async function POST(request: NextRequest) {
           novaGroup: product.novaGroup,
         },
       });
-
       return NextResponse.json(item, { status: 201 });
-    } catch (err) {
-      console.error("Failed to save barcode product to database:", err);
-      return NextResponse.json(
-        { error: "Failed to save product. Please try again." },
-        { status: 500 }
-      );
+    } catch {
+      // Barcode columns may not exist yet (migration pending) — retry without them
+      try {
+        const item = await prisma.pantryItem.create({ data: baseData });
+        return NextResponse.json(item, { status: 201 });
+      } catch (err) {
+        console.error("Failed to save barcode product to database:", err);
+        return NextResponse.json(
+          { error: "Failed to save product. Please try again." },
+          { status: 500 }
+        );
+      }
     }
   }
 
