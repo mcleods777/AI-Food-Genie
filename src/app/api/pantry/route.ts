@@ -110,19 +110,19 @@ export async function POST(request: NextRequest) {
 
   // Barcode lookup
   if (body.barcode) {
+    const product = await lookupBarcode(body.barcode);
+    if (!product) {
+      return NextResponse.json(
+        { error: "Product not found. Try adding it manually." },
+        { status: 404 }
+      );
+    }
+
+    const now = new Date();
+    const itemLocation = body.location || "Pantry";
+    const estimated = calculateExpirationDate(now, product.name, itemLocation, product.category, false);
+
     try {
-      const product = await lookupBarcode(body.barcode);
-      if (!product) {
-        return NextResponse.json(
-          { error: "Product not found. Try adding it manually." },
-          { status: 404 }
-        );
-      }
-
-      const now = new Date();
-      const itemLocation = body.location || "Pantry";
-      const estimated = calculateExpirationDate(now, product.name, itemLocation, product.category, false);
-
       const item = await prisma.pantryItem.create({
         data: {
           name: product.brand ? `${product.brand} ${product.name}` : product.name,
@@ -144,9 +144,10 @@ export async function POST(request: NextRequest) {
       });
 
       return NextResponse.json(item, { status: 201 });
-    } catch {
+    } catch (err) {
+      console.error("Failed to save barcode product to database:", err);
       return NextResponse.json(
-        { error: "Failed to process barcode. Please try again." },
+        { error: "Failed to save product. Please try again." },
         { status: 500 }
       );
     }

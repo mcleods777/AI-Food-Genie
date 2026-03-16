@@ -93,24 +93,24 @@ export async function POST(request: NextRequest) {
 
   // Barcode lookup
   if (body.barcode) {
+    const product = await lookupBarcode(body.barcode);
+    if (!product) {
+      return NextResponse.json(
+        { error: "Product not found. Try adding it manually." },
+        { status: 404 }
+      );
+    }
+
+    const now = new Date();
+    const location = ["Dairy", "Meat", "Produce"].includes(product.category)
+      ? "Refrigerator"
+      : product.category === "Frozen"
+        ? "Freezer"
+        : "Pantry";
+
+    const estimated = calculateExpirationDate(now, product.name, location, product.category, false);
+
     try {
-      const product = await lookupBarcode(body.barcode);
-      if (!product) {
-        return NextResponse.json(
-          { error: "Product not found. Try adding it manually." },
-          { status: 404 }
-        );
-      }
-
-      const now = new Date();
-      const location = ["Dairy", "Meat", "Produce"].includes(product.category)
-        ? "Refrigerator"
-        : product.category === "Frozen"
-          ? "Freezer"
-          : "Pantry";
-
-      const estimated = calculateExpirationDate(now, product.name, location, product.category, false);
-
       const item = await prisma.pantryItem.create({
         data: {
           name: product.brand ? `${product.brand} ${product.name}` : product.name,
@@ -123,14 +123,19 @@ export async function POST(request: NextRequest) {
           expirationDate: estimated.date,
           expiryEstimateReason: estimated.reason,
           imageUrl: product.imageUrl,
-          notes: product.ingredients ? `Ingredients: ${product.ingredients.slice(0, 200)}` : null,
+          barcode: body.barcode,
+          brand: product.brand,
+          ingredients: product.ingredients,
+          nutriScore: product.nutriScore,
+          novaGroup: product.novaGroup,
         },
       });
 
       return NextResponse.json(item, { status: 201 });
-    } catch {
+    } catch (err) {
+      console.error("Failed to save barcode product to database:", err);
       return NextResponse.json(
-        { error: "Failed to process barcode. Please try again." },
+        { error: "Failed to save product. Please try again." },
         { status: 500 }
       );
     }
