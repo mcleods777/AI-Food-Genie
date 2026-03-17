@@ -110,31 +110,36 @@ export async function POST(request: NextRequest) {
 
   // Barcode lookup
   if (body.barcode) {
+    const product = await lookupBarcode(body.barcode);
+    if (!product) {
+      return NextResponse.json(
+        { error: "Product not found. Try adding it manually." },
+        { status: 404 }
+      );
+    }
+
+    const now = new Date();
+    const itemLocation = body.location || "Pantry";
+    const estimated = calculateExpirationDate(now, product.name, itemLocation, product.category, false);
+
+    const baseData = {
+      name: product.brand ? `${product.brand} ${product.name}` : product.name,
+      category: product.category,
+      quantity: body.quantity || 1,
+      unit: body.unit || "item",
+      location: itemLocation,
+      opened: false,
+      expirationDate: estimated.date,
+      expiryEstimateReason: estimated.reason,
+      purchaseDate: now,
+      imageUrl: product.imageUrl,
+    };
+
     try {
-      const product = await lookupBarcode(body.barcode);
-      if (!product) {
-        return NextResponse.json(
-          { error: "Product not found. Try adding it manually." },
-          { status: 404 }
-        );
-      }
-
-      const now = new Date();
-      const itemLocation = body.location || "Pantry";
-      const estimated = calculateExpirationDate(now, product.name, itemLocation, product.category, false);
-
+      // Try with all barcode fields first
       const item = await prisma.pantryItem.create({
         data: {
-          name: product.brand ? `${product.brand} ${product.name}` : product.name,
-          category: product.category,
-          quantity: body.quantity || 1,
-          unit: body.unit || "item",
-          location: itemLocation,
-          opened: false,
-          expirationDate: estimated.date,
-          expiryEstimateReason: estimated.reason,
-          purchaseDate: now,
-          imageUrl: product.imageUrl,
+          ...baseData,
           barcode: body.barcode,
           brand: product.brand,
           ingredients: product.ingredients,
@@ -142,13 +147,19 @@ export async function POST(request: NextRequest) {
           novaGroup: product.novaGroup,
         },
       });
-
       return NextResponse.json(item, { status: 201 });
     } catch {
-      return NextResponse.json(
-        { error: "Failed to process barcode. Please try again." },
-        { status: 500 }
-      );
+      // Barcode columns may not exist yet (migration pending) — retry without them
+      try {
+        const item = await prisma.pantryItem.create({ data: baseData });
+        return NextResponse.json(item, { status: 201 });
+      } catch (err) {
+        console.error("Failed to save barcode product to database:", err);
+        return NextResponse.json(
+          { error: "Failed to save product. Please try again." },
+          { status: 500 }
+        );
+      }
     }
   }
 
