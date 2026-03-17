@@ -37,6 +37,13 @@ export default function GroceriesPage() {
   const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Expiration date popup state (shown after successful barcode scan)
+  const [expiryPopup, setExpiryPopup] = useState<{ itemId: string; itemName: string } | null>(null);
+  const [expiryManualDate, setExpiryManualDate] = useState("");
+  const [expiryPhotoLoading, setExpiryPhotoLoading] = useState(false);
+  const [expiryPopupResult, setExpiryPopupResult] = useState<string | null>(null);
+  const expiryFileRef = useRef<HTMLInputElement>(null);
+
   const [newItem, setNewItem] = useState({
     name: "",
     category: "Other",
@@ -88,6 +95,10 @@ export default function GroceriesPage() {
         setBarcodeResult(`Added: ${data.name || "item"}`);
         setBarcodeInput("");
         fetchItems();
+        // Show expiration date popup
+        setExpiryPopup({ itemId: data.id, itemName: data.name || "item" });
+        setExpiryManualDate("");
+        setExpiryPopupResult(null);
       } else {
         setBarcodeResult(data.error || "Product not found");
       }
@@ -108,6 +119,57 @@ export default function GroceriesPage() {
     setBarcodeInput(barcode);
     submitBarcode(barcode);
   }, [submitBarcode]);
+
+  async function handleExpiryPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !expiryPopup) return;
+
+    setExpiryPhotoLoading(true);
+    setExpiryPopupResult(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("photo", file);
+      formData.append("itemId", expiryPopup.itemId);
+
+      const res = await fetch("/api/pantry/expiration", { method: "POST", body: formData });
+      const data = await res.json();
+
+      if (data.success) {
+        setExpiryPopupResult(`Expiration date set: ${new Date(data.date).toLocaleDateString()}${data.rawText ? ` (read: "${data.rawText}")` : ""}`);
+        fetchItems();
+        setTimeout(() => setExpiryPopup(null), 2000);
+      } else {
+        setExpiryPopupResult(data.message || "Could not read date. Try again or enter manually.");
+      }
+    } catch {
+      setExpiryPopupResult("Failed to analyze photo. Try again or enter manually.");
+    } finally {
+      setExpiryPhotoLoading(false);
+      if (expiryFileRef.current) expiryFileRef.current.value = "";
+    }
+  }
+
+  async function handleExpiryManualSave() {
+    if (!expiryPopup || !expiryManualDate) return;
+
+    try {
+      await fetch("/api/pantry", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: expiryPopup.itemId,
+          expirationDate: expiryManualDate,
+          expiryEstimateReason: "Manually entered expiration date",
+        }),
+      });
+      setExpiryPopupResult(`Expiration date set: ${new Date(expiryManualDate).toLocaleDateString()}`);
+      fetchItems();
+      setTimeout(() => setExpiryPopup(null), 1500);
+    } catch {
+      setExpiryPopupResult("Failed to save date. Try again.");
+    }
+  }
 
   async function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -512,6 +574,84 @@ export default function GroceriesPage() {
           </>
         )}
       </div>
+      {/* Expiration Date Popup — shown after successful barcode scan */}
+      {expiryPopup && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-sm">
+            <div className="px-6 py-4 border-b flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Set Expiration Date</h3>
+              <button
+                onClick={() => setExpiryPopup(null)}
+                className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
+              >
+                &times;
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-gray-600">
+                <span className="font-medium">{expiryPopup.itemName}</span> was added. How would you like to set the expiration date?
+              </p>
+
+              {/* Take Photo button */}
+              <button
+                onClick={() => expiryFileRef.current?.click()}
+                disabled={expiryPhotoLoading}
+                className="w-full bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {expiryPhotoLoading ? (
+                  <>
+                    <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                    AI is reading the date...
+                  </>
+                ) : (
+                  "Take Photo of Expiration Date"
+                )}
+              </button>
+              <input
+                ref={expiryFileRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={handleExpiryPhoto}
+              />
+
+              {/* Manual date entry */}
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  value={expiryManualDate}
+                  onChange={(e) => setExpiryManualDate(e.target.value)}
+                  className="border rounded-lg px-3 py-2.5 text-sm flex-1"
+                />
+                <button
+                  onClick={handleExpiryManualSave}
+                  disabled={!expiryManualDate}
+                  className="bg-emerald-600 text-white px-4 py-2.5 rounded-lg hover:bg-emerald-700 transition-colors text-sm font-medium disabled:opacity-50"
+                >
+                  Save Date
+                </button>
+              </div>
+
+              {/* Result message */}
+              {expiryPopupResult && (
+                <div className={`px-3 py-2 rounded-lg text-sm ${expiryPopupResult.startsWith("Expiration date set") ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"}`}>
+                  {expiryPopupResult}
+                </div>
+              )}
+
+              {/* Skip button */}
+              <button
+                onClick={() => setExpiryPopup(null)}
+                className="w-full text-gray-500 hover:text-gray-700 text-sm py-2 transition-colors"
+              >
+                Skip — use estimated date
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showBarcodeScanner && (
         <BarcodeScanner
           onDetected={handleBarcodeDetected}
