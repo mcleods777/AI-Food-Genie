@@ -30,7 +30,7 @@ export type ScanProvider = "gemini" | "claude" | "openai";
  * - response_mime_type="application/json" for reliable structured parsing
  * - GPT-4o and Claude retained as fallbacks if Gemini is unavailable
  */
-export function getProviderForTask(task: "scan" | "ocr" | "recipe" | "suggest"): {
+export function getProviderForTask(task: "scan" | "ocr" | "recipe" | "suggest" | "assignment"): {
   provider: ScanProvider;
   model: string;
   available: boolean;

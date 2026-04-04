@@ -27,6 +27,7 @@ model PantryItem {
   ingredients   String?   @db.Text // full ingredients list
   nutriScore    String?   // Nutri-Score grade (a-e)
   novaGroup     Int?      // NOVA food processing group (1-4)
+  urgencyNotifiedAt DateTime? // last time user was notified this item is expiring
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -114,4 +115,58 @@ model AuditLog {
   summary   String?  @db.Text
   details   String?  @db.Text // JSON with audit findings
   createdAt DateTime @default(now())
+}
+
+// Daily meal assignment — the core autopilot entity
+model DailyAssignment {
+  id            String    @id @default(uuid())
+  date          DateTime  @db.Date
+  mealName      String
+  ingredients   Json      // [{name, fromPantry, expiring}]
+  steps         Json      // ["step 1", "step 2", ...]
+  prepMinutes   Int       @default(30)
+  usesExpiring  String[]
+  reason        String?
+  status        String    @default("pending") // pending, accepted, skipped, expired
+  generatedAt   DateTime  @default(now())
+  respondedAt   DateTime?
+
+  responses     AssignmentResponse[]
+
+  @@unique([date])
+}
+
+// Track how user responded and via which channel
+model AssignmentResponse {
+  id            String    @id @default(uuid())
+  assignmentId  String
+  response      String    // "accept" or "skip"
+  channel       String    // "push", "sms", "app"
+  createdAt     DateTime  @default(now())
+
+  assignment    DailyAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+}
+
+// User notification preferences
+model NotificationPreference {
+  id            String    @id @default(uuid())
+  userId        String    @default("default")
+  pushEnabled   Boolean   @default(false)
+  smsEnabled    Boolean   @default(false)
+  smsPhone      String?
+  mealTime      String    @default("16:00")
+  checkinTime   String    @default("09:00")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([userId])
+}
+
+// Web push subscription storage
+model PushSubscription {
+  id            String    @id @default(uuid())
+  endpoint      String    @unique
+  keysP256dh    String
+  keysAuth      String
+  createdAt     DateTime  @default(now())
 }

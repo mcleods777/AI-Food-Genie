@@ -69,3 +69,44 @@ self.addEventListener("fetch", (event) => {
       .catch(() => caches.match(event.request))
   );
 });
+
+// Push notification received
+self.addEventListener("push", (event) => {
+  const data = event.data ? event.data.json() : {};
+  const title = data.title || "Food Genie";
+  const options = {
+    body: data.body || "You have a new meal assignment",
+    icon: "/icons/icon-192x192.png",
+    badge: "/icons/icon-72x72.png",
+    data: { url: data.url || "/autopilot" },
+    actions: data.actions || [
+      { action: "accept", title: "Sounds good" },
+      { action: "skip", title: "Not tonight" },
+    ],
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// Notification action tapped
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url || "/autopilot";
+
+  if (event.action === "accept" || event.action === "skip") {
+    event.waitUntil(
+      fetch("/api/assignments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          response: event.action === "accept" ? "accept" : "skip",
+          channel: "push",
+          date: new Date().toISOString().split("T")[0],
+        }),
+      })
+        .then(() => self.clients.openWindow(url))
+        .catch(() => self.clients.openWindow(url))
+    );
+  } else {
+    event.waitUntil(self.clients.openWindow(url));
+  }
+});
