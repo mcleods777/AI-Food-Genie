@@ -9,7 +9,7 @@ interface NotificationSetupProps {
 
 export function NotificationSetup({ onComplete }: NotificationSetupProps) {
   const [step, setStep] = useState<"info" | "permission" | "done">("info");
-  const [headcount, setHeadcount] = useState(2);
+  const [headcount, setHeadcount] = useState("2");
   const [allergies, setAllergies] = useState("");
   const [pushStatus, setPushStatus] = useState<"idle" | "granted" | "denied">("idle");
   const [saving, setSaving] = useState(false);
@@ -31,13 +31,14 @@ export function NotificationSetup({ onComplete }: NotificationSetupProps) {
     setSaving(true);
     try {
       // Save household config
+      const count = parseInt(headcount) || 1;
       await fetch("/api/meal-plans/household", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: "Default",
-          scenario: headcount === 1 ? "solo" : headcount === 2 ? "with_partner" : "with_kids",
-          headcount,
+          scenario: count === 1 ? "solo" : count === 2 ? "with_partner" : "with_kids",
+          headcount: count,
           isDefault: true,
           notes: allergies ? `Allergies: ${allergies}` : null,
         }),
@@ -92,7 +93,7 @@ export function NotificationSetup({ onComplete }: NotificationSetupProps) {
               min={1}
               max={12}
               value={headcount}
-              onChange={e => setHeadcount(parseInt(e.target.value) || 1)}
+              onChange={e => setHeadcount(e.target.value)}
               className="w-full h-12 px-4 border border-gray-300 rounded-xl text-lg focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
             />
           </div>
