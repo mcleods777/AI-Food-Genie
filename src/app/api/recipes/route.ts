@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { extractRecipeFromUrl } from "@/lib/ai";
 
+export const maxDuration = 60;
+
 export async function GET() {
   const recipes = await prisma.recipe.findMany({
     include: { ingredients: true },
@@ -18,9 +20,19 @@ export async function POST(request: NextRequest) {
     const extracted = await extractRecipeFromUrl(body.url);
     if (!extracted) {
       return NextResponse.json(
-        { error: "Failed to extract recipe from URL" },
+        { error: "Could not extract a recipe from this page. Try a different URL." },
         { status: 400 }
       );
+    }
+
+    // Handle fetch-level errors returned from extractRecipeFromUrl
+    if ("_error" in extracted) {
+      const errorMap: Record<string, string> = {
+        PAGE_NOT_FOUND: "Page not found. Check the URL and try again.",
+        PAGE_BLOCKED: "This site blocked our request. Try copying the recipe manually.",
+      };
+      const message = errorMap[extracted._error as string] || "Failed to fetch the recipe page. Try again later.";
+      return NextResponse.json({ error: message }, { status: 400 });
     }
 
     const recipe = await prisma.recipe.create({
@@ -32,6 +44,7 @@ export async function POST(request: NextRequest) {
         prepTime: extracted.prepTime,
         cookTime: extracted.cookTime,
         instructions: JSON.stringify(extracted.instructions),
+        imageUrl: extracted.imageUrl || null,
         tags: extracted.tags.join(","),
         ingredients: {
           create: extracted.ingredients.map((ing) => ({

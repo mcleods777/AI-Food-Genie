@@ -3,8 +3,12 @@
 // Note: strip EXIF orientation metadata from iPhone photos before sending to Gemini
 // (documented issue causes rotated bounding boxes). Use thinking level "minimal" for speed.
 
+import { z } from "zod";
 import { estimateExpiration } from "./expiration";
 import { getProviderConfig, getProviderForTask, type ScanProvider } from "./providers";
+import { extractJsonLdRecipe, extractMainContent, type ExtractedRecipe } from "./recipe-parser";
+
+export type { ExtractedRecipe };
 
 export interface AnalyzedItem {
   name: string;
@@ -18,16 +22,6 @@ export interface AnalyzedItem {
   expirationDateFromLabel?: string | null; // OCR-read date if visible
 }
 
-interface ExtractedRecipe {
-  title: string;
-  description: string;
-  servings: number;
-  prepTime: number | null;
-  cookTime: number | null;
-  instructions: string[];
-  ingredients: { name: string; quantity: number; unit: string }[];
-  tags: string[];
-}
 
 // ─── Describe-then-extract system prompt (proven to reduce errors) ─────────
 
@@ -307,55 +301,121 @@ If you cannot clearly read a date, return {"date": null, "confidence": 0, "rawTe
   }
 }
 
+// Zod schema for validated recipe extraction
+const recipeSchema = z.object({
+  title: z.string().min(1),
+  description: z.string().nullable().default(null),
+  servings: z.coerce.number().positive().default(4),
+  prepTime: z.coerce.number().positive().nullable().default(null),
+  cookTime: z.coerce.number().positive().nullable().default(null),
+  instructions: z.array(z.string()).min(1),
+  ingredients: z.array(z.object({
+    name: z.string().min(1),
+    quantity: z.coerce.number().default(1),
+    unit: z.string().default("item"),
+  })).min(1),
+  tags: z.array(z.string()).default([]),
+  imageUrl: z.string().nullable().default(null),
+});
+
 /**
- * Extract a recipe from a URL.
+ * Fetch a recipe page with a proper User-Agent header.
+ * Returns the raw HTML string. Throws with specific error messages.
+ */
+async function fetchRecipePage(url: string): Promise<string> {
+  const res = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (compatible; FoodGenieBot/1.0; +https://food-genie.app)",
+    },
+    signal: AbortSignal.timeout(10000),
+  });
+
+  if (res.status === 404) throw new Error("PAGE_NOT_FOUND");
+  if (res.status === 403) throw new Error("PAGE_BLOCKED");
+  if (!res.ok) throw new Error(`FETCH_ERROR_${res.status}`);
+
+  return res.text();
+}
+
+/**
+ * Extract a recipe from a URL using JSON-LD first, AI as fallback.
+ * Returns a validated ExtractedRecipe or null if extraction fails.
  */
 export async function extractRecipeFromUrl(
   url: string
-): Promise<ExtractedRecipe | null> {
+): Promise<(ExtractedRecipe & { _error?: string }) | null> {
   const { provider, model, available } = getProviderForTask("recipe");
 
   if (!available) {
     return getMockRecipe(url);
   }
 
-  // Fetch the webpage content
-  let pageContent: string;
+  // 1. Fetch the page
+  let html: string;
   try {
-    const res = await fetch(url);
-    pageContent = await res.text();
-    pageContent = pageContent
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 8000);
-  } catch {
-    return null;
+    html = await fetchRecipePage(url);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "FETCH_ERROR";
+    return { _error: msg } as unknown as ExtractedRecipe & { _error: string };
   }
 
-  const systemPrompt = "You are a recipe extraction specialist. Extract structured recipe data from webpage content.";
-  const userPrompt = `Extract the recipe from this webpage content. Return a JSON object with:
-- title: recipe name
-- description: brief description
-- servings: number of servings
-- prepTime: prep time in minutes (null if not found)
-- cookTime: cook time in minutes (null if not found)
-- instructions: array of step strings
-- ingredients: array of objects with {name, quantity (number), unit}
-- tags: array of tag strings (e.g., "vegetarian", "quick", "dessert")
+  // 2. Try JSON-LD extraction first (no AI needed)
+  try {
+    const fromJsonLd = extractJsonLdRecipe(html);
+    if (fromJsonLd) {
+      const validated = recipeSchema.safeParse(fromJsonLd);
+      if (validated.success) {
+        console.log("[recipe] Extracted via JSON-LD");
+        return validated.data as ExtractedRecipe;
+      }
+    }
+  } catch {
+    // JSON-LD parsing failed, fall through to AI
+  }
 
-Webpage content:
-${pageContent}
+  // 3. AI fallback with strict prompt
+  const content = extractMainContent(html);
 
-Respond with JSON only.`;
+  const systemPrompt = "You are a recipe extraction specialist. Extract structured recipe data from webpage content. Return ONLY valid JSON matching the exact schema specified.";
+  const userPrompt = `Extract the recipe from this content. Return a JSON object with EXACTLY these fields:
+
+{
+  "title": "Recipe Name",
+  "description": "Brief description or null",
+  "servings": 4,
+  "prepTime": 15,
+  "cookTime": 30,
+  "instructions": ["Step 1 text", "Step 2 text"],
+  "ingredients": [{"name": "flour", "quantity": 2, "unit": "cup"}],
+  "tags": ["dinner", "easy"],
+  "imageUrl": null
+}
+
+Rules:
+- title: required, non-empty string
+- servings: number, default 4 if not found
+- prepTime/cookTime: minutes as number, null if not found
+- instructions: array of strings, at least 1 step
+- ingredients: each MUST have name (string), quantity (number, default 1), unit (string, default "item")
+- tags: array of lowercase strings
+- imageUrl: URL string or null
+
+Content:
+${content}`;
 
   try {
     const raw = await callProvider(provider, model, systemPrompt, userPrompt);
     const json = extractJson(raw);
-    return JSON.parse(json);
-  } catch {
+    const parsed = JSON.parse(json);
+    const validated = recipeSchema.safeParse(parsed);
+    if (validated.success) {
+      console.log("[recipe] Extracted via AI fallback");
+      return validated.data as ExtractedRecipe;
+    }
+    console.error("[recipe] AI response failed Zod validation:", validated.error.issues);
+    return null;
+  } catch (error) {
+    console.error("[recipe] AI extraction failed:", error);
     return null;
   }
 }
@@ -582,6 +642,7 @@ function getMockRecipe(url: string): ExtractedRecipe {
       { name: "Black Pepper", quantity: 0.5, unit: "tsp" },
     ],
     tags: ["dinner", "protein", "easy"],
+    imageUrl: null,
   };
 }
 
