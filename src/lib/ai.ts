@@ -60,7 +60,9 @@ async function callGemini(
   systemPrompt: string,
   userPrompt: string,
   base64Image?: string,
-  mimeType: string = "image/jpeg"
+  mimeType: string = "image/jpeg",
+  fileUri?: string,
+  fileMimeType?: string
 ): Promise<string> {
   const parts: Array<Record<string, unknown>> = [];
 
@@ -69,6 +71,15 @@ async function callGemini(
       inline_data: {
         mime_type: mimeType,
         data: base64Image,
+      },
+    });
+  }
+
+  if (fileUri) {
+    parts.push({
+      file_data: {
+        mime_type: fileMimeType || "video/mp4",
+        file_uri: fileUri,
       },
     });
   }
@@ -451,6 +462,128 @@ Return a JSON array of meal name strings only.`;
     return JSON.parse(json);
   } catch {
     return [];
+  }
+}
+
+// ─── Video recipe extraction ──────────────────────────────────────────────
+
+import {
+  isVideoUrl as _isVideoUrl,
+  extractTikTokVideoUrl,
+  getYouTubeVideoId,
+  downloadToTmp,
+  uploadToGeminiFileApi,
+  cleanupTmpFile,
+  type VideoPlatform,
+} from "./video-parser";
+
+export { _isVideoUrl as isVideoUrl };
+
+const VIDEO_RECIPE_SYSTEM_PROMPT = `You are a recipe extraction specialist analyzing a cooking video. Watch the entire video carefully, paying attention to both visual and audio content.`;
+
+const VIDEO_RECIPE_USER_PROMPT = `Watch this cooking video and extract the complete recipe. Pay attention to:
+- Ingredients shown, mentioned, or measured (with quantities when visible/stated)
+- The cooking steps in chronological order
+- Prep time and cook time if mentioned
+- The name of the dish
+
+Return a JSON object with EXACTLY these fields:
+{
+  "title": "Dish name",
+  "description": "Brief description or null",
+  "servings": 4,
+  "prepTime": 15,
+  "cookTime": 30,
+  "instructions": ["Step 1", "Step 2"],
+  "ingredients": [{"name": "flour", "quantity": 2, "unit": "cup"}],
+  "tags": ["tiktok", "quick", "dinner"],
+  "imageUrl": null
+}
+
+If you can't determine an exact quantity, estimate based on what you see.
+If you can't determine the dish name, describe what was cooked.
+Every ingredient MUST have name, quantity (number, default 1), and unit (string, default "item").`;
+
+/**
+ * Extract a recipe from a video URL (TikTok, YouTube).
+ * Downloads/uploads the video and sends to Gemini for multimodal analysis.
+ */
+export async function extractRecipeFromVideo(
+  url: string,
+  platform: VideoPlatform
+): Promise<ExtractedRecipe | null> {
+  const { provider, available } = getProviderForTask("recipe");
+  if (provider !== "gemini" || !available) {
+    console.error("[video] Video extraction requires Gemini. Provider:", provider, "Available:", available);
+    return null;
+  }
+
+  const apiKey = getProviderConfig().geminiApiKey;
+  if (!apiKey) return null;
+
+  let fileUri: string | null = null;
+  let tmpPath: string | null = null;
+
+  try {
+    if (platform === "youtube") {
+      // Try passing YouTube URL directly to Gemini
+      // Gemini may support YouTube URLs natively (Google-to-Google)
+      const videoId = getYouTubeVideoId(url);
+      if (videoId) {
+        // Use the YouTube URL as the file URI directly
+        fileUri = `https://www.youtube.com/watch?v=${videoId}`;
+      }
+    }
+
+    if (platform === "tiktok") {
+      // Extract video URL from TikTok page, download, upload to Gemini
+      const videoUrl = await extractTikTokVideoUrl(url);
+      if (!videoUrl) {
+        console.error("[video] Could not extract video URL from TikTok page");
+        return null;
+      }
+
+      tmpPath = await downloadToTmp(videoUrl);
+      fileUri = await uploadToGeminiFileApi(tmpPath);
+      if (!fileUri) {
+        console.error("[video] Failed to upload video to Gemini File API");
+        return null;
+      }
+    }
+
+    if (!fileUri) {
+      console.error("[video] No file URI available for platform:", platform);
+      return null;
+    }
+
+    // Call Gemini with the video
+    const raw = await callGemini(
+      apiKey,
+      "gemini-2.5-flash",
+      VIDEO_RECIPE_SYSTEM_PROMPT,
+      VIDEO_RECIPE_USER_PROMPT,
+      undefined, // no base64 image
+      undefined, // no image mime type
+      fileUri,
+      "video/mp4"
+    );
+
+    const json = extractJson(raw);
+    const parsed = JSON.parse(json);
+    const validated = recipeSchema.safeParse(parsed);
+
+    if (validated.success) {
+      console.log(`[video] Successfully extracted recipe from ${platform} video`);
+      return validated.data as ExtractedRecipe;
+    }
+
+    console.error("[video] Gemini response failed Zod validation:", validated.error.issues);
+    return null;
+  } catch (error) {
+    console.error("[video] Video recipe extraction failed:", error);
+    return null;
+  } finally {
+    if (tmpPath) cleanupTmpFile(tmpPath);
   }
 }
 

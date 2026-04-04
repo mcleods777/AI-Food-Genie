@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { extractRecipeFromUrl } from "@/lib/ai";
+import { extractRecipeFromUrl, extractRecipeFromVideo, isVideoUrl } from "@/lib/ai";
 
 export const maxDuration = 60;
 
@@ -15,9 +15,24 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const body = await request.json();
 
-  // If a URL is provided, extract recipe using AI
+  // If a URL is provided, extract recipe
   if (body.url) {
-    const extracted = await extractRecipeFromUrl(body.url);
+    // Check if it's a video platform URL (TikTok, YouTube)
+    const platform = isVideoUrl(body.url);
+    let extracted;
+
+    if (platform) {
+      console.log(`[recipes] Video URL detected: ${platform}`);
+      extracted = await extractRecipeFromVideo(body.url, platform);
+      if (!extracted) {
+        return NextResponse.json(
+          { error: `Couldn't extract recipe from this ${platform} video. Try a different link.` },
+          { status: 400 }
+        );
+      }
+    } else {
+      extracted = await extractRecipeFromUrl(body.url);
+    }
     if (!extracted) {
       return NextResponse.json(
         { error: "Could not extract a recipe from this page. Try a different URL." },
