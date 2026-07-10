@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { getFallbackMeal } from "@/lib/ai";
+import { getFallbackMeal } from "@/lib/fallback-meals";
 
 interface Ingredient {
   name: string;
