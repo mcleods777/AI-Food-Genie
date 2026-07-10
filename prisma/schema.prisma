@@ -162,6 +162,39 @@ model NotificationPreference {
   @@unique([userId])
 }
 
+// Meat price tracker settings (zip code for store-accurate pricing)
+model PriceSetting {
+  id        String   @id @default(uuid())
+  userId    String   @default("default")
+  zipCode   String?
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId])
+}
+
+// Snapshot of a meat product's price at a store from one refresh run
+model MeatPrice {
+  id          String   @id @default(uuid())
+  store       String   // "ALDI", "Hy-Vee"
+  productName String   // e.g. "USDA Choice Black Angus Ribeye Steak"
+  cut         String   // normalized cut, e.g. "Ribeye", "NY Strip", "Ground Beef 80/20"
+  grade       String   @default("Ungraded") // Prime, Choice, Select, Wagyu, Angus, Ungraded
+  pricePerLb  Float?
+  totalPrice  Float?
+  packSize    String?  // e.g. "~1.1 lb each"
+  onSale      Boolean  @default(false)
+  saleNote    String?  // e.g. "was $12.99/lb, weekly ad through 7/15"
+  sourceNote  String?  @db.Text // where the price was found
+  confidence  Float    @default(0.5)
+  linkUrl     String   // verified store search URL (never a guessed deep link)
+  batchId     String   // groups all rows from one refresh run
+  fetchedAt   DateTime @default(now())
+
+  @@index([batchId])
+  @@index([fetchedAt])
+  @@index([cut, grade])
+}
+
 // Web push subscription storage
 model PushSubscription {
   id            String    @id @default(uuid())
